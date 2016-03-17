@@ -89,6 +89,10 @@ if(WIN32)
       list(APPEND SOS_LIBRARY 
         ${STATIC_MT_VCRT_LIB}
       )
+  elseif (NOT CLR_CMAKE_PLATFORM_ARCH_ARM)
+      list(APPEND SOS_LIBRARY
+        ${STATIC_MT_VCRT_LIB}
+      )
   endif()
     
 else(WIN32)

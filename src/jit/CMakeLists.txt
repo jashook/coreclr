@@ -142,7 +142,10 @@ set(CLR_EXPORTED_SYMBOL_FILE ${CLRJIT_EXPORTS_DEF})
 
 add_subdirectory(dll)
 add_subdirectory(crossgen)
-add_subdirectory(standalone)
+
+if (NOT CLR_CMAKE_PLATFORM_ARCH_ARM)
+   add_subdirectory(standalone)
+endif(NOT CLR_CMAKE_PLATFORM_ARCH_ARM)
 
 if (CLR_CMAKE_PLATFORM_ARCH_I386 OR CLR_CMAKE_PLATFORM_ARCH_ARM)
     add_subdirectory(protojit)

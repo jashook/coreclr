@@ -28,10 +28,6 @@ else()
        oleaut32.lib
        uuid.lib
        user32.lib
-       version.lib
-       shlwapi.lib
-       bcrypt.lib
-       crypt32.lib
        RuntimeObject.lib
     )
 endif(CLR_CMAKE_PLATFORM_UNIX)

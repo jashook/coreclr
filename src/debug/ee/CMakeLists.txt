@@ -82,4 +82,7 @@ convert_to_absolute_path(CORDBEE_SOURCES_WKS ${CORDBEE_SOURCES_WKS})
 set(CORDBEE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_subdirectory(dac)
-add_subdirectory(wks)
+
+if (NOT CLR_CMAKE_PLATFORM_ARCH_ARM)
+   add_subdirectory(wks)
+endif(NOT CLR_CMAKE_PLATFORM_ARCH_ARM)

@@ -61,7 +61,7 @@ else()
     )
 
     # ARM64_TODO: Enable this for Windows Arm64
-    if (NOT CLR_CMAKE_PLATFORM_ARCH_ARM64)
+    if (NOT CLR_CMAKE_PLATFORM_ARCH_ARM64 AND NOT CLR_CMAKE_PLATFORM_ARCH_ARM)
         target_link_libraries(crossgen ${STATIC_MT_VCRT_LIB})
     endif()
 

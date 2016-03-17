@@ -290,8 +290,10 @@ goto GenVSSolution
 :: Set the environment for the native build
 set __VCBuildArch=x86_amd64
 if /i "%__BuildArch%" == "x86" (set __VCBuildArch=x86)
+if /i "%__BuildArch%" == "arm" (set __VCBuildArch=amd64_arm)
 echo %__MsgPrefix%Using environment: "%__VSToolsRoot%\..\..\VC\vcvarsall.bat" %__VCBuildArch%
 call                                 "%__VSToolsRoot%\..\..\VC\vcvarsall.bat" %__VCBuildArch%
+
 @if defined __echo @echo on
 
 if not defined VSINSTALLDIR (

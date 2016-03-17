@@ -59,13 +59,13 @@ if(WIN32)
         oleaut32.lib
         uuid.lib
         user32.lib
-        version.lib
         ${STATIC_MT_CRT_LIB}
     )
 
     # ARM64_TODO: Enable this for Windows Arm64
-    if (NOT CLR_CMAKE_PLATFORM_ARCH_ARM64)
+    if (NOT CLR_CMAKE_PLATFORM_ARCH_ARM64 AND NOT CLR_CMAKE_PLATFORM_ARCH_ARM)
         list(APPEND COREDBI_LIBRARIES 
+          version.lib
           ${STATIC_MT_VCRT_LIB}
         )
     endif()
