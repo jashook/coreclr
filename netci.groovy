@@ -70,7 +70,7 @@ class Constants {
     // This is the set of configurations
     def static configurationList = ['Debug', 'Checked', 'Release']
     // This is the set of architectures
-    def static architectureList = ['arm', 'arm64', 'x64', 'x86']
+    def static architectureList = ['arm', 'arm64', 'x64', 'x86ryujit', 'x86lb']
 }
 
 def static setMachineAffinity(def job, def os, def architecture) {
@@ -216,7 +216,10 @@ def static getJobName(def configuration, def architecture, def os, def scenario,
             // These are cross builds
             baseName = architecture.toLowerCase() + '_cross_' + configuration.toLowerCase() + '_' + os.toLowerCase()
             break
-        case 'x86':
+        case 'x86ryujit':
+            baseName = architecture.toLowerCase() + configuration.toLowerCase() + '_' + os.toLowerCase()
+            break
+        case 'x86lb':
             baseName = architecture.toLowerCase() + '_lb_' + configuration.toLowerCase() + '_' + os.toLowerCase()
             break
         default:
@@ -263,7 +266,8 @@ def static addTriggers(def job, def branch, def isPR, def architecture, def os, 
             case 'default':
                 switch (architecture) {
                     case 'x64':
-                    case 'x86':
+                    case 'x86ryujit':
+                    case 'x86lb':
                         if (isFlowJob || os == 'Windows_NT' || !(os in Constants.crossList)) {
                             Utilities.addGithubPushTrigger(job)
                         }
@@ -322,7 +326,7 @@ def static addTriggers(def job, def branch, def isPR, def architecture, def os, 
                         }
                     }
                     // For x86, only add per-commit jobs for Windows
-                    else if (architecture == 'x86') {
+                    else if (architecture == 'x86ryujit' || architecture == 'x86lb') {
                         if (os == 'Windows_NT') {
                             Utilities.addGithubPushTrigger(job)
                         }
@@ -341,7 +345,7 @@ def static addTriggers(def job, def branch, def isPR, def architecture, def os, 
                         }
                     }
                     // For x86, only add per-commit jobs for Windows
-                    else if (architecture == 'x86') {
+                    else if (architecture == 'x86ryujit' || architecture == 'x86lb') {
                         if (os == 'Windows_NT') {
                             Utilities.addGithubPushTrigger(job)
                         }
@@ -795,12 +799,13 @@ def static addTriggers(def job, def branch, def isPR, def architecture, def os, 
 				    break
             }
             break
-        case 'x86':
+        case 'x86ryujit':
+        case 'x86lb':
             assert (scenario == 'default' || scenario == 'r2r' || scenario == 'pri1r2r' || scenario == 'gcstress15_pri1r2r' || scenario == 'longgc')
             // For windows, x86 runs by default
             if (scenario == 'default') {
                 if (os == 'Windows_NT') {
-                    if (configuration != 'Checked') {
+                    if (configuration == 'Checked') {
                         Utilities.addGithubPRTriggerForBranch(job, branch, "${os} ${architecture} ${configuration} Legacy Backend Build and Test")
                     }
                 }
@@ -874,7 +879,8 @@ combinedScenarios.each { scenario ->
                                 return
                             }
                             break
-                        case 'x86':
+                        case 'x86ryujit':
+                        case 'x86lb':
                             // Skip non-windows
                             if (os != 'Windows_NT') {
                                 return
@@ -943,7 +949,7 @@ combinedScenarios.each { scenario ->
                                     return
                                 }
                                 // only x64 or x86 for now
-                                if (architecture != 'x64' && architecture != 'x86') {
+                                if (architecture != 'x64' && architecture != 'x86ryujit' && architecture != 'x86lb') {
                                     return
                                 }
                                 break
@@ -954,7 +960,7 @@ combinedScenarios.each { scenario ->
                                     return
                                 }
                                 // only x64 or x86 for now
-                                if (architecture != 'x64' && architecture != 'x86') {
+                                if (architecture != 'x64' && architecture != 'x86ryujit' && architecture != 'x86lb') {
                                     return
                                 }
                                 break
@@ -965,7 +971,7 @@ combinedScenarios.each { scenario ->
                                     return
                                 }
                                 // only x64 or x86 for now
-                                if (architecture != 'x64' && architecture != 'x86') {
+                                if (architecture != 'x64' && architecture != 'x86ryujit' && architecture != 'x86lb') {
                                     return
                                 }
                                 break
@@ -975,7 +981,7 @@ combinedScenarios.each { scenario ->
                                 }
                                 
                                 // only x64 or x86 for now
-                                if (architecture != 'x64' && architecture != 'x86') {
+                                if (architecture != 'x64' && architecture != 'x86ryujit' && architecture != 'x86lb') {
                                     return
                                 }
                                 break
@@ -1010,7 +1016,8 @@ combinedScenarios.each { scenario ->
                         case 'Windows_NT':
                             switch (architecture) {
                                 case 'x64':
-                                case 'x86':
+                                case 'x86ryujit':
+                                case 'x86lb':
                                     
                                     if (Constants.jitStressModeScenarios.containsKey(scenario) || scenario == 'default') {
                                         buildOpts = enableCorefxTesting ? 'skiptests' : ''
@@ -1090,8 +1097,15 @@ combinedScenarios.each { scenario ->
                                             } else {
                                                 buildCommands += "tests\\runtest.cmd ${lowerConfiguration} ${architecture}"
                                             }
+                                        }                                        
+                                        else if (architecture == 'x86ryujit') {
+                                            if (scenario == 'longgc') {
+                                                buildCommands += "tests\\runtest.cmd ${lowerConfiguration} ${architecture} longgctests sequential Exclude0"
+                                            } else {
+                                                buildCommands += "tests\\runtest.cmd ${lowerConfiguration} ${architecture}"
+                                            }
                                         }
-                                        else if (architecture == 'x86') {
+                                        else if (architecture == 'x86lb') {
                                             if (scenario == 'longgc') {
                                                 buildCommands += "tests\\runtest.cmd ${lowerConfiguration} ${architecture} longgctests sequential Exclude0"
                                             } else {
@@ -1171,7 +1185,8 @@ combinedScenarios.each { scenario ->
                         case 'OpenSUSE13.2':
                             switch (architecture) {
                                 case 'x64':
-                                case 'x86':
+                                case 'x86ryujit':
+                                case 'x86lb':
                                     if (!enableCorefxTesting) {
                                         // We run pal tests on all OS but generate mscorlib (and thus, nuget packages)
                                         // only on supported OS platforms.
