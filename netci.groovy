@@ -185,6 +185,7 @@ def static genStressModeScriptStep(def os, def stressModeName, def stressModeVar
         // modes up this to 30 minutes
         def timeout = 1800000
 
+
         // Set the Timeout
         stepScript += "set __TestTimeout=${timeout}\r\n"
         stressModeVars.each{ k, v -> 
@@ -233,6 +234,19 @@ def static getStressModeEnvSetCmd(def os, def stressModeName) {
 // Calculates the name of the build job based on some typical parameters.
 //
 def static getJobName(def configuration, def architecture, def os, def scenario, def isBuildOnly) {
+    // If the OS is LinuxARMEmulator and arch is arm, set the isLinuxEmulatorBuild
+    // flag to true and reset the os to Ubuntu
+    // The isLinuxEmulatorBuild flag will be used at a later time to execute the right
+    // set of build commands
+    // The tuples (LinuxARMEmulator, other architectures) are not handled and control returns
+    def isLinuxEmulatorBuild = false
+    if (os == 'LinuxARMEmulator' && architecture == 'arm') {
+        isLinuxEmulatorBuild = true
+        os = 'Ubuntu'
+    } else if (os == 'LinuxARMEmulator') {
+        return
+    }
+
     // If the architecture is x64, do not add that info into the build name.
     // Need to change around some systems and other builds to pick up the right builds
     // to do that.
@@ -255,7 +269,12 @@ def static getJobName(def configuration, def architecture, def os, def scenario,
         case 'arm64':
         case 'arm':
             // These are cross builds
-            baseName = architecture.toLowerCase() + '_cross_' + configuration.toLowerCase() + '_' + os.toLowerCase()
+            if (isLinuxEmulatorBuild == false) {
+                baseName = architecture.toLowerCase() + '_cross_' + configuration.toLowerCase() + '_' + os.toLowerCase()
+            }
+            else {
+                baseName = architecture.toLowerCase() + '_emulator_cross_' + configuration.toLowerCase() + '_' + os.toLowerCase()
+            }
             break
         case 'x86ryujit':
             baseName = 'x86_ryujit_' + configuration.toLowerCase() + '_' + os.toLowerCase()
@@ -1039,9 +1058,9 @@ def static addTriggers(def job, def branch, def isPR, def architecture, def os, 
             assert scenario == 'default'
             switch (os) {
                 case 'Ubuntu':
-                    if (!isLinuxEmulatorBuild) {
+                    if (isLinuxEmulatorBuild == false) {
                         // Removing the regex will cause this to run on each PR.
-                        Utilities.addGithubPRTriggerForBranch(job, branch, "${os} ${architecture} Cross ${configuration} Build")
+                        Utilities.addGithubPRTriggerForBranch(job, branch, "${os} ${architecture} Cross ${configuration} Build", "(?i).*test\\W+Linux\\W+arm\\W+${configuration}.*")
                     }
                     else {
                         Utilities.addGithubPRTriggerForBranch(job, branch, "Linux ARM Emulator Cross ${configuration} Build")
@@ -1751,7 +1770,7 @@ combinedScenarios.each { scenario ->
                                 case 'arm':
                                     // All builds for ARM architecture are run on Ubuntu currently
                                     assert os == 'Ubuntu'
-                                    if (!isLinuxEmulatorBuild) {
+                                    if (isLinuxEmulatorBuild == false) {
                                         buildCommands += """echo \"Using rootfs in /opt/arm-liux-genueabihf-root\"
                                             ROOTFS_DIR=/opt/arm-linux-genueabihf-root ./build.sh skipmscorlib arm cross verbose ${lowerConfiguration}"""
                                         
@@ -1769,6 +1788,7 @@ combinedScenarios.each { scenario ->
 
                                         // Call the ARM emulator build script to cross build using the ARM emulator rootfs
                                         buildCommands += "./tests/scripts/arm32_ci_script.sh ${armemul_path} ${armrootfs_mountpath} ${lowerConfiguration}"
+
 
                                         // Basic archiving of the build, no pal tests
                                         Utilities.addArchival(newJob, "bin/Product/**")
