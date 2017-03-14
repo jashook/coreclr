@@ -1585,7 +1585,7 @@ void STDCALL CopyValueClassArgUnchecked(ArgDestination *argDest, void* src, Meth
     STATIC_CONTRACT_FORBID_FAULT;
     STATIC_CONTRACT_MODE_COOPERATIVE;
 
-#if defined(UNIX_AMD64_ABI) && defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)
+#if defined(UNIX_AMD64_ABI) && defined(FEATURE_UNIX_AMD64_STRUCT_PASSING) || defined (_TARGET_ARM64_)
 
     if (argDest->IsStructPassedInRegs())
     {
@@ -1593,7 +1593,7 @@ void STDCALL CopyValueClassArgUnchecked(ArgDestination *argDest, void* src, Meth
         return;
     }
 
-#endif // UNIX_AMD64_ABI && FEATURE_UNIX_AMD64_STRUCT_PASSING
+#endif // UNIX_AMD64_ABI && FEATURE_UNIX_AMD64_STRUCT_PASSING || _TARGET_ARM64_
     // destOffset is only valid for Nullable<T> passed in registers
     _ASSERTE(destOffset == 0);
 
