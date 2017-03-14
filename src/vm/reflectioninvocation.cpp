@@ -1431,7 +1431,11 @@ FCIMPL4(Object*, RuntimeMethodHandle::InvokeMethod,
         }
 #endif
 
+#ifndef defined(_TARGET_ARM64_)
         ArgDestination argDest(pTransitionBlock, ofs, argit.GetArgLocDescForStructInRegs());
+#else
+        ArgDestination argDest(pTransitionBlock, ofs, argit.GetArgLoc());
+#endif // defined(_TARGET_ARM64_)
 
         if(needsStackCopy)
         {

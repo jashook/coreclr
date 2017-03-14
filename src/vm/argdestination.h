@@ -30,6 +30,9 @@ public:
         LIMITED_METHOD_CONTRACT;
 #if defined(UNIX_AMD64_ABI) && defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)
         _ASSERTE((argLocDescForStructInRegs != NULL) || (offset != TransitionBlock::StructInRegsOffset));
+#elif defined(_TARGET_ARM64_)
+        // This assert is not interesting on arm64. argLocDescForStructInRegs could be
+        // initialized if the args are being enregistered.
 #else        
         _ASSERTE(argLocDescForStructInRegs == NULL);
 #endif        
@@ -42,31 +45,17 @@ public:
         return dac_cast<PTR_VOID>(dac_cast<TADDR>(m_base) + m_offset);
     }
 
-#if defined(UNIX_AMD64_ABI) && defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)
+#if (defined(UNIX_AMD64_ABI) && defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)) || defined(_TARGET_ARM64_)
 
     // Returns true if the ArgDestination represents a struct passed in registers.
     bool IsStructPassedInRegs()
     {
         LIMITED_METHOD_CONTRACT;
+#if defined(_TARGET_ARM64_)
+        return m_argLocDescForStructInRegs != NULL;
+#else
         return m_offset == TransitionBlock::StructInRegsOffset;
-    }
-
-    // Get destination address for floating point fields of a struct passed in registers.
-    PTR_VOID GetStructFloatRegDestinationAddress()
-    {
-        LIMITED_METHOD_CONTRACT;
-        _ASSERTE(IsStructPassedInRegs());
-        int offset = TransitionBlock::GetOffsetOfFloatArgumentRegisters() + m_argLocDescForStructInRegs->m_idxFloatReg * 16;
-        return dac_cast<PTR_VOID>(dac_cast<TADDR>(m_base) + offset);
-    }
-
-    // Get destination address for non-floating point fields of a struct passed in registers.
-    PTR_VOID GetStructGenRegDestinationAddress()
-    {
-        LIMITED_METHOD_CONTRACT;
-        _ASSERTE(IsStructPassedInRegs());
-        int offset = TransitionBlock::GetOffsetOfArgumentRegisters() + m_argLocDescForStructInRegs->m_idxGenReg * 8;
-        return dac_cast<PTR_VOID>(dac_cast<TADDR>(m_base) + offset);
+#endif // defined(_TARGET_ARM64_)
     }
 
 #ifndef DACCESS_COMPILE
@@ -105,6 +94,33 @@ public:
         STATIC_CONTRACT_MODE_COOPERATIVE;
 
         _ASSERTE(IsStructPassedInRegs());
+
+#if defined (_TARGET_ARM64_)
+        // We are either copying either a float or double HFA and need to
+        // enregister each field.
+
+        int floatRegCount = m_argLocDescForStructInRegs->m_cFloatReg;
+        bool typeFloat = m_argLocDescForStructInRegs->_isSinglePrecision;
+        void* dest = this->GetDestinationAddress();
+
+        if (typeFloat)
+        {
+            // Zero out memory before copying.
+            memset(dest, 0, floatRegCount * sizeof(double));
+
+            for (int i = 0; i < floatRegCount; ++i) 
+            {
+                // Copy 4 bytes on 8 bytes alignment
+                *((UINT64*)dest + i) = *((UINT32*)src + i);
+            }
+        }
+        else
+        {
+            // We can just do a memcpy.
+            memcpyNoGCRefs(dest, src, fieldBytes);
+        }
+
+#else
      
         BYTE* genRegDest = (BYTE*)GetStructGenRegDestinationAddress() + destOffset;
         BYTE* floatRegDest = (BYTE*)GetStructFloatRegDestinationAddress();
@@ -162,10 +178,33 @@ public:
             INDEBUG(remainingBytes -= eightByteSize;)
         }
 
-        _ASSERTE(remainingBytes == 0);        
+        _ASSERTE(remainingBytes == 0);
+
+#endif // #if defined(_TARGET_ARM64_)
     }
 
 #endif //DACCESS_COMPILE
+#endif // UNIX_AMD64_ABI FEATURE_UNIX_AMD64_STRUCT_PASSING _TARGET_ARM64_
+
+#if defined(UNIX_AMD64_ABI) && defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)
+
+    // Get destination address for floating point fields of a struct passed in registers.
+    PTR_VOID GetStructFloatRegDestinationAddress()
+    {
+        LIMITED_METHOD_CONTRACT;
+        _ASSERTE(IsStructPassedInRegs());
+        int offset = TransitionBlock::GetOffsetOfFloatArgumentRegisters() + m_argLocDescForStructInRegs->m_idxFloatReg * 16;
+        return dac_cast<PTR_VOID>(dac_cast<TADDR>(m_base) + offset);
+    }
+
+    // Get destination address for non-floating point fields of a struct passed in registers.
+    PTR_VOID GetStructGenRegDestinationAddress()
+    {
+        LIMITED_METHOD_CONTRACT;
+        _ASSERTE(IsStructPassedInRegs());
+        int offset = TransitionBlock::GetOffsetOfArgumentRegisters() + m_argLocDescForStructInRegs->m_idxGenReg * 8;
+        return dac_cast<PTR_VOID>(dac_cast<TADDR>(m_base) + offset);
+    }
 
     // Report managed object pointers in the struct in registers
     // Arguments:
