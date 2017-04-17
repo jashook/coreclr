@@ -498,7 +498,7 @@ public:
 
     ArgLocDesc* GetArgLocDescForStructInRegs()
     {
-#if defined(UNIX_AMD64_ABI) && defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)
+#if (defined(UNIX_AMD64_ABI) && defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)) || defined (_TARGET_ARM64_)
         return m_hasArgLocDescForStructInRegs ? &m_argLocDescForStructInRegs : NULL;
 #else
         return NULL;
@@ -650,7 +650,7 @@ protected:
     CorElementType      m_argType;
     int                 m_argSize;
     TypeHandle          m_argTypeHandle;
-#if defined(_TARGET_AMD64_) && defined(UNIX_AMD64_ABI) && defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)
+#if (defined(_TARGET_AMD64_) && defined(UNIX_AMD64_ABI) && defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)) || defined(_TARGET_ARM64_)
     ArgLocDesc          m_argLocDescForStructInRegs;
     bool                m_hasArgLocDescForStructInRegs;
 #endif // _TARGET_AMD64_ && UNIX_AMD64_ABI && FEATURE_UNIX_AMD64_STRUCT_PASSING
@@ -1289,12 +1289,26 @@ int ArgIteratorTemplate<ARGITERATOR_BASE>::GetNextOffset()
     int cbArg = StackElemSize(argSize);
     int cArgSlots = cbArg / STACK_ELEM_SIZE;
 
+    auto setupArgLocDesc = [argType, &thValueType, this](int argOfs)
+    {
+        if (argType == ELEMENT_TYPE_VALUETYPE)
+        {
+            if (thValueType.IsHFA())
+            {
+                // Make sure the locDesc is set up correctly.
+                GetArgLoc(argOfs, &this->m_argLocDescForStructInRegs);
+            }
+        }
+    };
+
     if (cFPRegs>0 && !this->IsVarArg())
     {
         if (cFPRegs + m_idxFPReg <= 8)
         {
             int argOfs = TransitionBlock::GetOffsetOfFloatArgumentRegisters() + m_idxFPReg * 8;
             m_idxFPReg += cFPRegs;
+
+            setupArgLocDesc(argOfs);
             return argOfs;
         }
         else
@@ -1308,6 +1322,8 @@ int ArgIteratorTemplate<ARGITERATOR_BASE>::GetNextOffset()
         {
             int argOfs = TransitionBlock::GetOffsetOfArgumentRegisters() + m_idxGenReg * 8;
             m_idxGenReg += cArgSlots;
+
+            setupArgLocDesc(argOfs);
             return argOfs;
         }
         else
@@ -1318,6 +1334,8 @@ int ArgIteratorTemplate<ARGITERATOR_BASE>::GetNextOffset()
 
     int argOfs = TransitionBlock::GetOffsetOfArgs() + m_idxStack * 8;
     m_idxStack += cArgSlots;
+
+    setupArgLocDesc(argOfs);
     return argOfs;
 #else
     PORTABILITY_ASSERT("ArgIteratorTemplate::GetNextOffset");
