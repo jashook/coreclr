@@ -34,20 +34,25 @@ BOOL IsRetBuffPassedAsFirstArg();
 // and possibly on to the stack as well.
 struct ArgLocDesc
 {
-    int     m_idxFloatReg;  // First floating point register used (or -1)
-    int     m_cFloatReg;    // Count of floating point registers used (or 0)
+    int     m_idxFloatReg;        // First floating point register used (or -1)
+    int     m_cFloatReg;          // Count of floating point registers used (or 0)
 
-    int     m_idxGenReg;    // First general register used (or -1)
-    int     m_cGenReg;      // Count of general registers used (or 0)
+    int     m_idxGenReg;          // First general register used (or -1)
+    int     m_cGenReg;            // Count of general registers used (or 0)
 
-    int     m_idxStack;     // First stack slot used (or -1)
-    int     m_cStack;       // Count of stack slots used (or 0)
+    int     m_idxStack;           // First stack slot used (or -1)
+    int     m_cStack;             // Count of stack slots used (or 0)
 
 #if defined(UNIX_AMD64_ABI) && defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)
 
-    EEClass* m_eeClass;     // For structs passed in register, it points to the EEClass of the struct
+    EEClass* m_eeClass;           // For structs passed in register, it points to the EEClass of the struct
 
 #endif // UNIX_AMD64_ABI && FEATURE_UNIX_AMD64_STRUCT_PASSING
+
+#if defined(_TARGET_ARM64_)
+    bool    m_isSinglePrecision;  // For determining if HFA is single or double
+                                  // precision
+#endif // defined(_TARGET_ARM64_)
 
 #if defined(_TARGET_ARM_)
     BOOL    m_fRequires64BitAlignment; // True if the argument should always be aligned (in registers or on the stack
@@ -70,6 +75,9 @@ struct ArgLocDesc
 #if defined(_TARGET_ARM_)
         m_fRequires64BitAlignment = FALSE;
 #endif
+#if defined(_TARGET_ARM64_)
+        m_isSinglePrecision = FALSE;
+#endif // defined(_TARGET_ARM64_)
 #if defined(UNIX_AMD64_ABI) && defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)
         m_eeClass = NULL;
 #endif
@@ -556,7 +564,10 @@ public:
             if (!m_argTypeHandle.IsNull() && m_argTypeHandle.IsHFA())
             {
                 CorElementType type = m_argTypeHandle.GetHFAType();
-                pLoc->m_cFloatReg = (type == ELEMENT_TYPE_R4)? GetArgSize()/sizeof(float): GetArgSize()/sizeof(double);
+                bool isFloatType = (type == ELEMENT_TYPE_R4);
+
+                pLoc->m_cFloatReg = isFloatType ? GetArgSize()/sizeof(float): GetArgSize()/sizeof(double);
+                pLoc->m_isSinglePrecision = isFloatType;
             }
             else
             {
@@ -1103,7 +1114,9 @@ int ArgIteratorTemplate<ARGITERATOR_BASE>::GetNextOffset()
         // Handle HFAs: packed structures of 1-4 floats or doubles that are passed in FP argument
         // registers if possible.
         if (thValueType.IsHFA())
+        {
             fFloatingPoint = true;
+        }
 #endif
 
         break;
