@@ -3443,6 +3443,11 @@ var_types LclVarDsc::lvaArgType()
     }
 #elif defined(_TARGET_X86_)
 // Nothing to do; use the type as is.
+#elif defined(_TARGET_ARM64_)
+   if (type == TYP_STRUCT)
+   {
+      NYI("lvaArgType");
+   }
 #else
     NYI("lvaArgType");
 #endif //_TARGET_AMD64_
