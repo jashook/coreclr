@@ -108,12 +108,19 @@ void Compiler::lvaInitTypeRef()
     /* Set compArgsCount and compLocalsCount */
 
     info.compArgsCount = info.compMethodInfo->args.numArgs;
+    unsigned   argRegCount      = 0;
+
+    auto incrementArgCount = [this, &argRegCount]()
+    {
+        ++info.compArgsCount;
+        ++argRegCount;
+    };
 
     // Is there a 'this' pointer
 
     if (!info.compIsStatic)
     {
-        info.compArgsCount++;
+        incrementArgCount();
     }
     else
     {
@@ -167,7 +174,7 @@ void Compiler::lvaInitTypeRef()
 
     if (hasRetBuffArg)
     {
-        info.compArgsCount++;
+        incrementArgCount();
     }
     else
     {
@@ -179,14 +186,14 @@ void Compiler::lvaInitTypeRef()
 
     if (info.compIsVarArgs)
     {
-        info.compArgsCount++;
+        incrementArgCount();
     }
 
     // Is there an extra parameter used to pass instantiation info to
     // shared generic methods and shared generic struct instance methods?
     if (info.compMethodInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE)
     {
-        info.compArgsCount++;
+        incrementArgCount();
     }
     else
     {
@@ -236,6 +243,40 @@ void Compiler::lvaInitTypeRef()
     lvaInitArgs(&varDscInfo);
 
     //-------------------------------------------------------------------------
+    // Calculate the argument register usage.
+    //
+    // This will later be used for fastTailCall determination
+    //-------------------------------------------------------------------------
+
+    unsigned   floatingRegCount = 0;
+    unsigned   stackArgCount    = 0;
+    unsigned   stackSize        = 0;
+
+    auto incrementRegCount = [&floatingRegCount, &argRegCount](LclVarDsc* varDsc)
+    {
+        varDsc->IsFloatRegType() ? ++floatingRegCount : ++argRegCount;
+    };
+
+    for (LclVarDsc* varDsc, unsigned argNum = 0; argNum < info.compMethodInfo->args.numArgs; argNum++, varDsc++)
+    {
+        if (varDsc->lvRegNum != REG_STK)
+        {
+            incrementRegCount(varDsc);
+
+#ifdef (FEATURE_MULTIREG_ARGS && !WINDOWS_AMD64_ABI)
+            if (varDsc->lvOtherArgReg != REG_NA)
+            {
+                incrementRegCount(varDsc);
+            }
+#endif // (FEATURE_MULTIREG_ARGS && !WINDOWS_AMD64_ABI)
+        }
+        else
+        {
+            stackSize += varDsc->lvSize();
+        }
+    }
+
+    //-------------------------------------------------------------------------
     // Finally the local variables
     //-------------------------------------------------------------------------
 
@@ -255,12 +296,24 @@ void Compiler::lvaInitTypeRef()
         varDsc->lvPinned  = ((corInfoType & CORINFO_TYPE_MOD_PINNED) != 0);
         varDsc->lvOnFrame = true; // The final home for this local variable might be our local stack frame
 
+        CORINFO_CLASS_HANDLE clsHnd = info.compCompHnd->getArgClass(&info.compMethodInfo->locals, localsSig);
+        stackSize += roundUp(compGetTypeSize(strip(corInfoType), clsHnd), TARGET_POINTER_SIZE);
+
         if (strip(corInfoType) == CORINFO_TYPE_CLASS)
         {
-            CORINFO_CLASS_HANDLE clsHnd = info.compCompHnd->getArgClass(&info.compMethodInfo->locals, localsSig);
             lvaSetClass(varNum, clsHnd);
         }
     }
+
+    //-------------------------------------------------------------------------
+    // Save the register usage information and stack size.
+    //-------------------------------------------------------------------------
+
+    stackSize += stackArgCount * REGSIZE_BYTES;
+
+    info.compArgRegCount = argRegCount;
+    info.compFloatArgRegCount = floatingRegCount;
+    info.compStackSize = stackSize;
 
     if ( // If there already exist unsafe buffers, don't mark more structs as unsafe
         // as that will cause them to be placed along with the real unsafe buffers,
@@ -1253,6 +1306,10 @@ void Compiler::lvaInitVarDsc(LclVarDsc*              varDsc,
 #ifdef DEBUG
     varDsc->lvStkOffs = BAD_STK_OFFS;
 #endif
+
+#ifdef FEATURE_MULTIREG_ARGS
+    varDsc->lvOtherArgReg = REG_NA;
+#endif // FEATURE_MULTIREG_ARGS
 }
 
 /*****************************************************************************
