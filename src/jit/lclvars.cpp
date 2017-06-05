@@ -239,9 +239,11 @@ void Compiler::lvaInitTypeRef()
     // Finally the local variables
     //-------------------------------------------------------------------------
 
-    unsigned                varNum    = varDscInfo.varNum;
-    LclVarDsc*              varDsc    = varDscInfo.varDsc;
-    CORINFO_ARG_LIST_HANDLE localsSig = info.compMethodInfo->locals.args;
+    unsigned                argRegNum       = varDscInfo.intRegArgNum;
+    unsigned                otherArgRegNum  = varDscInfo.floatRegArgNum;
+    unsigned                varNum          = varDscInfo.varNum;
+    LclVarDsc*              varDsc          = varDscInfo.varDsc;
+    CORINFO_ARG_LIST_HANDLE localsSig       = info.compMethodInfo->locals.args;
 
     for (unsigned i = 0; i < info.compMethodInfo->locals.numArgs;
          i++, varNum++, varDsc++, localsSig = info.compCompHnd->getArgNext(localsSig))
@@ -261,6 +263,9 @@ void Compiler::lvaInitTypeRef()
             lvaSetClass(varNum, clsHnd);
         }
     }
+
+    info.compArgRegCount = argRegNum;
+    info.compOtherArgRegCount = otherArgRegNum;
 
     if ( // If there already exist unsafe buffers, don't mark more structs as unsafe
         // as that will cause them to be placed along with the real unsafe buffers,
