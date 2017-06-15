@@ -8190,8 +8190,13 @@ public:
         var_types compRetNativeType;    // Normalized return type as per target arch ABI
         unsigned  compILargsCount;      // Number of arguments (incl. implicit but not hidden)
         unsigned  compArgsCount;        // Number of arguments (incl. implicit and     hidden)
-        unsigned  compArgRegCount;      // Number of integer locals
-        unsigned  compOtherArgRegCount; // Number of multireg args
+
+#ifdef FEATURE_MULTIREG_ARGS
+        unsigned  compArgRegCount;      // Number of caller integer args
+        unsigned  compFloatArgRegCount; // Number of caller floating point args
+        unsigned  compStackSize;        // Caller stack size
+#endif // FEATURE_MULTIREG_ARGS
+
         unsigned  compRetBuffArg;       // position of hidden return param var (0, 1) (BAD_VAR_NUM means not present);
         int compTypeCtxtArg;            // position of hidden param for type context for generic code (CORINFO_CALLCONV_PARAMTYPE)
         unsigned       compThisArg;     // position of implicit this pointer param (not to be confused with lvaArg0Var)
