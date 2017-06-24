@@ -6951,14 +6951,27 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     // Count of caller args including implicit and hidden (i.e. thisPtr, RetBuf, GenericContext, VarargCookie)
     unsigned callerArgRegCount        = info.compArgRegCount;
     unsigned callerFloatArgRegCount   = info.compFloatArgRegCount;
-    unsigned callerStackSize          = info.compStackSize;
+
+    // TODO ARM64, UNIX x64
+    // 
+    // Currently we can track the caller's inbound stack size; however, we cannot
+    // easily determine the caller's outbound stack size (the callee's inbound stack
+    // size). This information is computed in fgMorphArgs which currently is
+    // dependent on the canFastTailCall decision.
+    //
+    // Note that we can get around this by excluding all stack bound structs.
+    // See the note below which guarentees this.
+    // **IF** we end up spilling a struct to the stack because the amount of
+    // incoming and outbound arguments exceed our register amount then we will
+    // also decide not to fastTailCall out of an abundance of caution.
+    //
+    // See github issue: #...
 
     // Count the callee args including implicit and hidden.
     // Note that GenericContext and VarargCookie are added by importer while
     // importing the call to gtCallArgs list along with explicit user args.
     unsigned calleeArgRegCount = 0;
     unsigned calleeFloatArgRegCount = 0;
-    unsigned calleeStackSize = 0;
 
     if (callee->gtCallObjp) // thisPtr
     {
@@ -6977,12 +6990,14 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
         }
     }
 
+    unsigned argNum = 0;
+
     // Count user args while tracking whether any of them is a multi-byte params
     // that cannot be passed in a register. Note that we don't need to count
     // non-standard and secret params passed in registers (e.g. R10, R11) since
     // these won't contribute to out-going arg size.
     bool hasMultiByteArgs = false;
-    for (GenTreePtr args = callee->gtCallArgs; (args != nullptr) && !hasMultiByteArgs; args = args->gtOp.gtOp2)
+    for (GenTreePtr args = callee->gtCallArgs; (args != nullptr) && !hasMultiByteArgs; args = args->gtOp.gtOp2, ++argNum)
     {
         assert(args->OperIsList());
         GenTreePtr argx = args->gtOp.gtOp1;
@@ -7010,6 +7025,11 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
             {
 #if defined(_TARGET_AMD64_) || defined(_TARGET_ARM64_)
 
+                // **NOTE**
+                //
+                // hasMultiByteArgs will determine if the struct can be passed
+                // in registers. If it cannot we will break the loop and not
+                // fastTailCall. See #...
                 unsigned typeSize = 0;
                 hasMultiByteArgs  = !VarTypeIsMultiByteAndCanEnreg(argx->TypeGet(), objClass, &typeSize, false);
 
@@ -7019,10 +7039,17 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
                 assert(objClass != nullptr);
                 eeGetSystemVAmd64PassStructInRegisterDescriptor(objClass, &structDesc);
 
+                // TODO. Here we have made the assumption that multibyte struct
+                // arguments will cause a no fastTailCall decision.
+                //
+                // This is a pessmimzation that can be avoided in the future.
+                // see: 
                 if (!structDesc.passedInRegisters)
                 {
-                    unsigned roundupSize = (unsigned)roundUp(typeSize, TARGET_POINTER_SIZE);
-                    calleeStackSize += roundupSize;
+                    noway_assert(hasMultiByteArgs);
+                    // TODO do not approx callee stack size.
+                    //unsigned roundupSize = (unsigned)roundUp(typeSize, TARGET_POINTER_SIZE);
+                    //calleeStackSize += roundupSize;
                 }
                 else
                 {
@@ -7062,9 +7089,11 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
 
                     if (size > 2)
                     {
-                        calleeStackSize += roundupSize;
-                        size = 1; // Structs that are larger that 2 pointers (except for HFAs) are passed by
-                                  // reference (to a copy)
+                        noway_assert(hasMultiByteArgs);
+                        // TODO do not approx callee stack size.
+                        //calleeStackSize += roundupSize;
+                        //size = 1; // Structs that are larger that 2 pointers (except for HFAs) are passed by
+                                    // reference (to a copy)
                     }
                 }
 
@@ -7082,7 +7111,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
                 hasMultiByteArgs = true;
             }
         }
-        else
+        else 
         {
             varTypeIsFloating(argx) ? ++calleeFloatArgRegCount : ++calleeArgRegCount;
         }
@@ -7106,24 +7135,6 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     }
 
     const unsigned maxRegArgs = MAX_REG_ARG;
-    
-    // We will have stackBound arguments
-    if ((calleeArgRegCount + calleeFloatArgRegCount) > maxRegArgs)
-    {
-        unsigned size = ((calleeArgRegCount + calleeFloatArgRegCount) - maxRegArgs) * TARGET_POINTER_SIZE;
-        calleeStackSize += size;
-    }
-
-    // Logging to help determine why the callee has been marked as canFastTailCall
-    JITDUMP("\ncanFastTailCall:\n");
-    JITDUMP("calleeArgRegCount (%d)+ calleeFloatArgRegCount (%d) > maxRegArgs (%d): %s\n",
-            calleeArgRegCount, calleeFloatArgRegCount, maxRegArgs,
-            (calleeArgRegCount + calleeFloatArgRegCount > maxRegArgs) ? "true" : "false");
-    JITDUMP("calleeArgRegCount (%d) > callerArgRegCount (%d) || calleeFloatArgRegCount (%d) > callerFloatArgRegCount (%d): %s\n", 
-            calleeArgRegCount, callerArgRegCount, calleeFloatArgRegCount, callerFloatArgRegCount,
-            (calleeArgRegCount > callerArgRegCount || calleeFloatArgRegCount > callerFloatArgRegCount) ? "true" : "false");
-    JITDUMP("calleeStackSize > callerStackSize: %s\n",
-            callerStackSize, calleeStackSize, (calleeStackSize > callerStackSize) ? "true" : "false");
 
     // If we reached here means that callee has only those argument types which can be passed in
     // a register and if passed on stack will occupy exactly one stack slot in out-going arg area.
@@ -7133,26 +7144,64 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     // Note that the GC'ness of on stack args need not match since the arg setup area is marked
     // as non-interruptible for fast tail calls.
 
-    // If we have more callee argument registers than MAX_REGS, then 
-    // make sure the callee's stack size is greater than 
-    if (calleeArgRegCount + calleeFloatArgRegCount > maxRegArgs)
+#ifdef WINDOWS_AMD64_ABI
+    // x64 Windows: If we have more callee registers used than MAX_REG_ARG, then 
+    // make sure the callee's incoming arguments is less than the caller's
+    if ((((calleeArgRegCount + calleeFloatArgRegCount) > maxRegArgs) && 
+        ((callerArgRegCount + callerFloatArgRegCount) > (callerArgRegCount + callerFloatArgRegCount)))
     {
-        if (calleeArgRegCount > callerArgRegCount || calleeFloatArgRegCount > callerFloatArgRegCount)
-        {
-            logToFile("Will not fastTailCall calleeArgRegCount > maxRegArgs && (calleeArgRegCount > callerArgRegCount || calleeFloatArgRegCount > callerFloatArgRegCount)");
-            return false;
-        }
-    }
-
-    if (calleeStackSize > callerStackSize)
-    {
-        logToFile("Will not fastTailCall calleeArgRegCount > maxRegArgs && ((calleeStackSize > callerStackSize) > callerStackSize)");
+        logToFile("Will not fastTailCall ((calleeArgRegCount + calleeFloatArgRegCount) > maxRegArgs) && (callerArgRegCount > calleeArgRegCount)");
         return false;
     }
 
+#elif _TARGET_ARM64_
+
+    // Arm64: We have the same amount of float and int arguments. Therefore,
+    // the only way our callee can have more stack space than the caller is if
+    // it has more (float and int) registers used. If this is the case go the
+    // slow route.
+
+    const int maxFloatRegArgs = MAX_FLOAT_REG_ARG;
+
+    if ((calleeArgRegCount + calleeFloatArgRegCount) > (maxRegArgs + maxFloatRegArgs) && 
+        (calleeArgRegCount + calleeFloatArgRegCount) > (callerArgRegCount + callerFloatArgRegCount))
+    {
+        logToFile("Will not fastTailCall (calleeArgRegCount + calleeFloatArgRegCount) > (maxRegArgs + maxFloatRegArgs) && (calleeArgRegCount + calleeFloatArgRegCount) > (callerArgRegCount + callerFloatArgRegCount)");
+        return false;
+    }
+
+#elif (_TARGET_AMD64_ && UNIX_AMD64_ABI)
+
+    const int maxFloatRegArgs = MAX_FLOAT_REG_ARG;
+
+    auto calculateWorstCaseStackSize = [&maxRegArgs, &maxFloatRegArgs](int argRegCount, int floatArgRegCount)
+    {
+        const unsigned numSpilledFloatRegs = floatArgRegCount > maxFloatRegArgs ? floatArgRegCount - maxFloatRegArgs : 0;
+        const unsigned numSpilledIntRegs = argRegCount > maxRegArgs ? argRegCount - maxRegArgs : 0;
+
+        const unsigned worstCaseStackSize = (numSpilledFloatRegs + numSpilledIntRegs) * TARGET_POINTER_SIZE;
+
+        return worstCaseStackSize;
+    };
+
+    const unsigned worstCaseCallerStackSize = calculateWorstCaseStackSize(callerArgRegCount, callerFloatArgRegCount);
+    const unsigned worstCaseCalleeStackSize = calculateWorstCaseStackSize(calleeArgRegCount, calleeFloatArgRegCount);
+    
+    if (worstCaseCalleeStackSize > worstCaseCallerStackSize)
+    {
+        logToFile("Will not fastTailCall worstCaseCalleeStackSize > worstCaseCallerStackSize");
+        return false;
+    }
+
+#else
+
+    NYI("fastTailCall not supported on this Architecture.");
+
+#endif //  WINDOWS_AMD64_ABI
+
     logToFile("Will fastTailCall");
     return true;
-#else
+#else // FEATURE_FASTTAILCALL
     return false;
 #endif
 }

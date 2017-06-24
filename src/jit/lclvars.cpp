@@ -254,44 +254,28 @@ void Compiler::lvaInitTypeRef()
     unsigned   stackArgCount    = 0;
     unsigned   stackSize        = 0;
 
-    auto determineRegAndStackUsage = [&argRegCount, &floatingRegCount, &stackArgCount, &stackSize](LclVarDsc* varDsc, unsigned count)
+    auto incrementRegCount = [&floatingRegCount, &argRegCount](LclVarDsc* varDsc)
     {
-        auto incrementRegCount = [&floatingRegCount, &argRegCount](LclVarDsc* varDsc)
-        {
-            varDsc->IsFloatRegType() ? ++floatingRegCount : ++argRegCount;
-        };
-
-        for (unsigned argNum = 0; argNum < count; argNum++, varDsc++)
-        {
-            regNumber lvRegNum = varDsc->lvRegNum;
-            regNumber lvOtherRegNum = varDsc->lvOtherArgReg;
-
-            if (varDsc->lvRegNum != REG_STK)
-            {
-                incrementRegCount(varDsc);
-            }
-            else
-            {
-                ++stackArgCount;
-            }
-
-            if (varDsc->lvOtherArgReg != REG_NA)
-            {
-                incrementRegCount(varDsc);
-            }
-        }
+        varDsc->IsFloatRegType() ? ++floatingRegCount : ++argRegCount;
     };
 
-    determineRegAndStackUsage(varDscTrailingPointer, info.compMethodInfo->args.numArgs);
-
-    const unsigned maxRegArgs = MAX_REG_ARG;
-
-    // We will have stackBound arguments so do a rough approximation to what
-    // the stack size will be.
-    if ((argRegCount + floatingRegCount) > maxRegArgs)
+    for (unsigned argNum = 0; argNum < info.compMethodInfo->args.numArgs; argNum++, varDscTrailingPointer++)
     {
-        unsigned size = ((argRegCount + floatingRegCount) - maxRegArgs) * TARGET_POINTER_SIZE;
-        stackSize += size;
+        if (varDscTrailingPointer->lvRegNum != REG_STK)
+        {
+            incrementRegCount(varDscTrailingPointer);
+
+#ifdef FEATURE_MULTIREG_ARGS
+            if (varDscTrailingPointer->lvOtherArgReg != REG_NA)
+            {
+                incrementRegCount(varDscTrailingPointer);
+            }
+#endif // FEATURE_MULTIREG_ARGS
+        }
+        else
+        {
+            stackSize += varDscTrailingPointer->lvSize();
+        }
     }
 
     //-------------------------------------------------------------------------
