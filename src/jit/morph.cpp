@@ -7171,7 +7171,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
 
     if (calleeStackArgCount > callerStackArgCount)
     {
-        JITDUMP("Will not fastTailCall calleeStackArgCount > calleeStackArgCount");
+        JITDUMP("Will not fastTailCall calleeStackArgCount > callerStackArgCount");
         return false;
     }
 
