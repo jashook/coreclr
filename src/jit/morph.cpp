@@ -7130,7 +7130,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     if ((((calleeArgRegCount + calleeFloatArgRegCount) > maxRegArgs) && 
         ((calleeArgRegCount + calleeFloatArgRegCount) > (callerArgRegCount + callerFloatArgRegCount)))
     {
-        JITDUMP("Will not fastTailCall ((calleeArgRegCount + calleeFloatArgRegCount) > maxRegArgs) && (callerArgRegCount > calleeArgRegCount)");
+        JITDUMP("Will not fastTailCall (((calleeArgRegCount + calleeFloatArgRegCount) > maxRegArgs) && ((calleeArgRegCount + calleeFloatArgRegCount) > (callerArgRegCount + callerFloatArgRegCount))");
         return false;
     }
 
@@ -7169,7 +7169,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
         return false;
     }
 
-    if (calleeStackArgCount > calleeStackArgCount)
+    if (calleeStackArgCount > callerStackArgCount)
     {
         JITDUMP("Will not fastTailCall calleeStackArgCount > calleeStackArgCount");
         return false;
