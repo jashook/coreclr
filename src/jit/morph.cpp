@@ -7147,10 +7147,14 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     unsigned calleeIntStackArgCount = calleeArgRegCount > maxRegArgs ? calleeArgRegCount - maxRegArgs : 0;
     unsigned calleeFloatStackArgCount = calleeFloatArgRegCount > maxFloatRegArgs ? calleeFloatArgRegCount - maxFloatRegArgs : 0;
 
+    unsigned calleeStackArgCount = calleeIntStackArgCount + calleeFloatStackArgCount;
+
     unsigned callerIntStackArgCount = callerArgRegCount > maxRegArgs ? callerArgRegCount - maxRegArgs : 0;
     unsigned callerFloatStackArgCount = callerFloatArgRegCount > maxFloatRegArgs ? callerFloatArgRegCount - maxFloatRegArgs : 0;
 
-    if (calleeFloatArgRegCount > maxFloatRegArgs || argRegCount > maxRegArgs)
+    unsigned callerStackArgCount = callerIntStackArgCount + callerFloatStackArgCount;
+
+    if (callerStackArgCount > 0 || calleeStackArgCount > 0)
     {
         hasStackArgs = true;
     }
@@ -7163,24 +7167,9 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
         return false;
     }
 
-    const int maxFloatRegArgs = MAX_FLOAT_REG_ARG;
-
-    auto calculateWorstCaseStackSize = [&maxRegArgs, &maxFloatRegArgs](int argRegCount, int floatArgRegCount)
+    if (calleeStackArgCount > calleeStackArgCount)
     {
-        const unsigned numSpilledFloatRegs = floatArgRegCount > maxFloatRegArgs ? floatArgRegCount - maxFloatRegArgs : 0;
-        const unsigned numSpilledIntRegs = argRegCount > maxRegArgs ? argRegCount - maxRegArgs : 0;
-
-        const unsigned worstCaseStackSize = (numSpilledFloatRegs + numSpilledIntRegs) * TARGET_POINTER_SIZE;
-
-        return worstCaseStackSize;
-    };
-
-    const unsigned worstCaseCallerStackSize = calculateWorstCaseStackSize(callerArgRegCount, callerFloatArgRegCount);
-    const unsigned worstCaseCalleeStackSize = calculateWorstCaseStackSize(calleeArgRegCount, calleeFloatArgRegCount);
-    
-    if (worstCaseCalleeStackSize > worstCaseCallerStackSize)
-    {
-        JITDUMP("Will not fastTailCall worstCaseCalleeStackSize > worstCaseCallerStackSize");
+        JITDUMP("Will not fastTailCall calleeStackArgCount > calleeStackArgCount");
         return false;
     }
 
