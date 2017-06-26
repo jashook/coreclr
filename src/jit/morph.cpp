@@ -6946,7 +6946,8 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     unsigned callerArgRegCount        = info.compArgRegCount;
     unsigned callerFloatArgRegCount   = info.compFloatArgRegCount;
 
-    // TODO ARM64, UNIX x64
+    // TODO-Linux-x86
+    // TODO-ARM64
     // 
     // Currently we can track the caller's inbound stack size; however, we cannot
     // easily determine the caller's outbound stack size (the callee's inbound stack
@@ -7059,7 +7060,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
                     }
                 }
 
-#else // ARM64
+#elif defined(_TARGET_ARM64_) // ARM64
                 var_types hfaType  = GetHfaType(argx);
                 bool      isHfaArg = varTypeIsFloating(hfaType);
                 unsigned  size     = 1;
@@ -7127,22 +7128,23 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     // x64 Windows: If we have more callee registers used than MAX_REG_ARG, then 
     // make sure the callee's incoming arguments is less than the caller's
     if ((((calleeArgRegCount + calleeFloatArgRegCount) > maxRegArgs) && 
-        ((callerArgRegCount + callerFloatArgRegCount) > (callerArgRegCount + callerFloatArgRegCount)))
+        ((calleeArgRegCount + calleeFloatArgRegCount) > (callerArgRegCount + callerFloatArgRegCount)))
     {
         JITDUMP("Will not fastTailCall ((calleeArgRegCount + calleeFloatArgRegCount) > maxRegArgs) && (callerArgRegCount > calleeArgRegCount)");
         return false;
     }
 
-#elif (_TARGET_AMD64_ && UNIX_AMD64_ABI) || _TARGET_ARM64_
+#elif (defined(_TARGET_AMD64_) && defined(UNIX_AMD64_ABI) || defined(_TARGET_ARM64_))
 
     // For *nix Amd64 and Arm64 check to see if all arguments for the callee
-    // and caller are passing in registers. If not make sure that the stack
-    // size for the callee is at less than or equal to the caller's.
+    // and caller are passing in registers. If not, ensure that the outgoing argument stack size 
+    // requirement for the callee is less than or equal to the caller's entire stack frame usage.
     //
     // Also, in the case that we have to pass arguments on the stack make sure
     // that we are not dealing with structs that are >8 bytes.
 
     bool hasStackArgs = false;
+    unsigned maxFloatRegArgs = MAX_FLOAT_REG_ARG;
 
     unsigned calleeIntStackArgCount = calleeArgRegCount > maxRegArgs ? calleeArgRegCount - maxRegArgs : 0;
     unsigned calleeFloatStackArgCount = calleeFloatArgRegCount > maxFloatRegArgs ? calleeFloatArgRegCount - maxFloatRegArgs : 0;

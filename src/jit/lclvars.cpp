@@ -108,19 +108,12 @@ void Compiler::lvaInitTypeRef()
     /* Set compArgsCount and compLocalsCount */
 
     info.compArgsCount = info.compMethodInfo->args.numArgs;
-    unsigned   argRegCount      = 0;
-
-    auto incrementArgCount = [this, &argRegCount]()
-    {
-        ++info.compArgsCount;
-        ++argRegCount;
-    };
 
     // Is there a 'this' pointer
 
     if (!info.compIsStatic)
     {
-        incrementArgCount();
+        info.compArgsCount++;
     }
     else
     {
@@ -174,7 +167,7 @@ void Compiler::lvaInitTypeRef()
 
     if (hasRetBuffArg)
     {
-        incrementArgCount();
+        info.compArgsCount++;
     }
     else
     {
@@ -186,14 +179,14 @@ void Compiler::lvaInitTypeRef()
 
     if (info.compIsVarArgs)
     {
-        incrementArgCount();
+        info.compArgsCount++;
     }
 
     // Is there an extra parameter used to pass instantiation info to
     // shared generic methods and shared generic struct instance methods?
     if (info.compMethodInfo->args.callConv & CORINFO_CALLCONV_PARAMTYPE)
     {
-        incrementArgCount();
+        info.compArgsCount++;
     }
     else
     {
@@ -242,12 +235,15 @@ void Compiler::lvaInitTypeRef()
 
     lvaInitArgs(&varDscInfo);
 
+#if FEATURE_FASTTAILCALL
+
     //-------------------------------------------------------------------------
     // Calculate the argument register usage.
     //
     // This will later be used for fastTailCall determination
     //-------------------------------------------------------------------------
 
+    unsigned   argRegCount      = 0;
     unsigned   floatingRegCount = 0;
     unsigned   stackArgCount    = 0;
     unsigned   stackSize        = 0;
@@ -257,24 +253,33 @@ void Compiler::lvaInitTypeRef()
         varDsc->IsFloatRegType() ? ++floatingRegCount : ++argRegCount;
     };
 
-    for (LclVarDsc* varDsc, unsigned argNum = 0; argNum < info.compMethodInfo->args.numArgs; argNum++, varDsc++)
-    {
-        if (varDsc->lvRegNum != REG_STK)
-        {
-            incrementRegCount(varDsc);
+    unsigned   argNum;
+    LclVarDsc* curDsc;
 
-#ifdef (FEATURE_MULTIREG_ARGS && !WINDOWS_AMD64_ABI)
-            if (varDsc->lvOtherArgReg != REG_NA)
+    for (curDsc = lvaTable, argNum = 0; argNum < info.compMethodInfo->args.numArgs; argNum++, curDsc++)
+    {
+        if (curDsc->lvIsRegArg)
+        {
+            incrementRegCount(curDsc);
+
+#if defined(FEATURE_MULTIREG_ARGS) && defined(UNIX_AMD64_ABI)
+            if (curDsc->lvOtherArgReg != REG_NA)
             {
-                incrementRegCount(varDsc);
+                incrementRegCount(curDsc);
             }
-#endif // (FEATURE_MULTIREG_ARGS && !WINDOWS_AMD64_ABI)
+#endif // defined(FEATURE_MULTIREG_ARGS) && defined(UNIX_AMD64_ABI)
+        }
+        if (varTypeIsStruct(curDsc))
+        {
+            stackSize += curDsc->lvSize();
         }
         else
         {
-            stackSize += varDsc->lvSize();
+            stackSize += TARGET_POINTER_SIZE;
         }
     }
+
+#endif // FEATURE_FASTTAILCALL
 
     //-------------------------------------------------------------------------
     // Finally the local variables
@@ -288,23 +293,42 @@ void Compiler::lvaInitTypeRef()
          i++, varNum++, varDsc++, localsSig = info.compCompHnd->getArgNext(localsSig))
     {
         CORINFO_CLASS_HANDLE typeHnd;
-        CorInfoTypeWithMod   corInfoType =
+        CorInfoTypeWithMod corInfoTypeWithMod =
             info.compCompHnd->getArgType(&info.compMethodInfo->locals, localsSig, &typeHnd);
+        CorInfoType corInfoType = strip(corInfoTypeWithMod);
 
-        lvaInitVarDsc(varDsc, varNum, strip(corInfoType), typeHnd, localsSig, &info.compMethodInfo->locals);
+        lvaInitVarDsc(varDsc, varNum, corInfoType, typeHnd, localsSig, &info.compMethodInfo->locals);
 
-        varDsc->lvPinned  = ((corInfoType & CORINFO_TYPE_MOD_PINNED) != 0);
+        varDsc->lvPinned  = ((corInfoTypeWithMod & CORINFO_TYPE_MOD_PINNED) != 0);
         varDsc->lvOnFrame = true; // The final home for this local variable might be our local stack frame
 
-        CORINFO_CLASS_HANDLE clsHnd = info.compCompHnd->getArgClass(&info.compMethodInfo->locals, localsSig);
-        stackSize += roundUp(compGetTypeSize(strip(corInfoType), clsHnd), TARGET_POINTER_SIZE);
-
-        if (strip(corInfoType) == CORINFO_TYPE_CLASS)
+        if (corInfoType == CORINFO_TYPE_CLASS)
         {
+            CORINFO_CLASS_HANDLE clsHnd = info.compCompHnd->getArgClass(&info.compMethodInfo->locals, localsSig);
+    
+#if FEATURE_FASTTAILCALL
+            stackSize += roundUp(compGetTypeSize(corInfoType, clsHnd), TARGET_POINTER_SIZE);
+#endif // FEATURE_FASTTAILCALL
+
             lvaSetClass(varNum, clsHnd);
         }
+
+#if FEATURE_FASTTAILCALL
+        else if(corInfoType == CORINFO_TYPE_VALUECLASS)
+        {
+            CORINFO_CLASS_HANDLE typeHandle = varDsc->lvVerTypeInfo.GetClassHandle();
+            stackSize += info.compCompHnd->getClassSize(typeHandle);
+        }
+
+        else
+        {
+            stackSize += TARGET_POINTER_SIZE; // Use is one slot size.
+        }
+#endif // FEATURE_FASTTAILCALL
+
     }
 
+#if FEATURE_FASTTAILCALL
     //-------------------------------------------------------------------------
     // Save the register usage information and stack size.
     //-------------------------------------------------------------------------
@@ -314,6 +338,8 @@ void Compiler::lvaInitTypeRef()
     info.compArgRegCount = argRegCount;
     info.compFloatArgRegCount = floatingRegCount;
     info.compStackSize = stackSize;
+
+#endif //FEATURE_FASTTAILCALL
 
     if ( // If there already exist unsafe buffers, don't mark more structs as unsafe
         // as that will cause them to be placed along with the real unsafe buffers,
