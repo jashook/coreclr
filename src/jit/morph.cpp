@@ -6988,7 +6988,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     // these won't contribute to out-going arg size.
     bool hasMultiByteArgs = false;
     bool hasTwoSlotSizedStruct = false;
-    unsigned nCalleeArgs = calleeArgRegCount; // Keep track of how many args we have.
+    size_t nCalleeArgs = calleeArgRegCount; // Keep track of how many args we have.
     for (GenTreePtr args = callee->gtCallArgs; (args != nullptr) && !hasMultiByteArgs; args = args->gtOp.gtOp2)
     {
         ++nCalleeArgs;
@@ -7092,6 +7092,10 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
 
                 calleeArgRegCount += size;
 
+#elif defined(WINDOWS_AMD64_ABI)
+
+            ++calleeArgRegCount;
+
 #endif // FEATURE_UNIX_AMD64_STRUCT_PASSING
 
 #else
@@ -7113,7 +7117,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     // Go the slow route, if it has multi-byte params
     if (hasMultiByteArgs)
     {
-        JITDUMP("hasMultiByteArgs");
+        JITDUMP("Will not fastTailCall hasMultiByteArgs");
         return false;
     }
 
@@ -7128,12 +7132,15 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     // as non-interruptible for fast tail calls.
 
 #ifdef WINDOWS_AMD64_ABI
+    size_t calleeStackSlots = ((calleeArgRegCount + calleeFloatArgRegCount) > maxRegArgs) ? (calleeArgRegCount + calleeFloatArgRegCount) - maxRegArgs : 0;
+    size_t calleeStackSize = calleeStackSlots * TARGET_POINTER_SIZE;
+    size_t callerStackSize = info.compStackSize;
+
     // x64 Windows: If we have more callee registers used than MAX_REG_ARG, then 
     // make sure the callee's incoming arguments is less than the caller's
-    if (((calleeArgRegCount + calleeFloatArgRegCount) > maxRegArgs) && 
-        ((calleeArgRegCount + calleeFloatArgRegCount) > (callerArgRegCount + callerFloatArgRegCount)))
+    if ((calleeStackSlots > 0) && (calleeStackSize > callerStackSize))
     {
-        JITDUMP("Will not fastTailCall (((calleeArgRegCount + calleeFloatArgRegCount) > maxRegArgs) && ((calleeArgRegCount + calleeFloatArgRegCount) > (callerArgRegCount + callerFloatArgRegCount))");
+        JITDUMP("Will not fastTailCall (calleeStackSlots > 0) && (calleeStackSize > callerStackSize)");
         return false;
     }
 
@@ -7147,14 +7154,14 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     // that we are not dealing with structs that are >8 bytes.
 
     bool hasStackArgs = false;
-    unsigned maxFloatRegArgs = MAX_FLOAT_REG_ARG;
+    size_t maxFloatRegArgs = MAX_FLOAT_REG_ARG;
 
-    unsigned calleeIntStackArgCount = calleeArgRegCount > maxRegArgs ? calleeArgRegCount - maxRegArgs : 0;
-    unsigned calleeFloatStackArgCount = calleeFloatArgRegCount > maxFloatRegArgs ? calleeFloatArgRegCount - maxFloatRegArgs : 0;
+    size_t calleeIntStackArgCount = calleeArgRegCount > maxRegArgs ? calleeArgRegCount - maxRegArgs : 0;
+    size_t calleeFloatStackArgCount = calleeFloatArgRegCount > maxFloatRegArgs ? calleeFloatArgRegCount - maxFloatRegArgs : 0;
 
-    unsigned calleeStackArgCount = calleeIntStackArgCount + calleeFloatStackArgCount;
+    size_t calleeStackArgCount = calleeIntStackArgCount + calleeFloatStackArgCount;
     size_t callerStackSize = info.compStackSize;
-    unsigned calleeStackSize = calleeStackArgCount * TARGET_POINTER_SIZE;
+    size_t calleeStackSize = calleeStackArgCount * TARGET_POINTER_SIZE;
 
     if (callerStackSize > 0 || calleeStackSize > 0)
     {
