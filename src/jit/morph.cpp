@@ -7130,7 +7130,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
 #ifdef WINDOWS_AMD64_ABI
     // x64 Windows: If we have more callee registers used than MAX_REG_ARG, then 
     // make sure the callee's incoming arguments is less than the caller's
-    if ((((calleeArgRegCount + calleeFloatArgRegCount) > maxRegArgs) && 
+    if (((calleeArgRegCount + calleeFloatArgRegCount) > maxRegArgs) && 
         ((calleeArgRegCount + calleeFloatArgRegCount) > (callerArgRegCount + callerFloatArgRegCount)))
     {
         JITDUMP("Will not fastTailCall (((calleeArgRegCount + calleeFloatArgRegCount) > maxRegArgs) && ((calleeArgRegCount + calleeFloatArgRegCount) > (callerArgRegCount + callerFloatArgRegCount))");

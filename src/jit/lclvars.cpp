@@ -1315,9 +1315,9 @@ void Compiler::lvaInitVarDsc(LclVarDsc*              varDsc,
     varDsc->lvStkOffs = BAD_STK_OFFS;
 #endif
 
-#ifdef FEATURE_MULTIREG_ARGS
+#if defined(FEATURE_MULTIREG_ARGS) && !defined(WINDOWS_AMD64_ABI)
     varDsc->lvOtherArgReg = REG_NA;
-#endif // FEATURE_MULTIREG_ARGS
+#endif // defined(FEATURE_MULTIREG_ARGS) && !defined(WINDOWS_AMD64_ABI)
 }
 
 /*****************************************************************************
