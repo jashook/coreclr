@@ -7065,7 +7065,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
 #elif defined(_TARGET_ARM64_) // ARM64
                 var_types hfaType  = GetHfaType(argx);
                 bool      isHfaArg = varTypeIsFloating(hfaType);
-                unsigned  size     = 1;
+                size_t  size     = 1;
 
                 if (isHfaArg)
                 {
