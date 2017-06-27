@@ -6945,8 +6945,8 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     // Note that callee being a vararg method is not a problem since we can account the params being passed.
 
     // Count of caller args including implicit and hidden (i.e. thisPtr, RetBuf, GenericContext, VarargCookie)
-    unsigned callerArgRegCount        = info.compArgRegCount;
-    unsigned callerFloatArgRegCount   = info.compFloatArgRegCount;
+    size_t callerArgRegCount        = info.compArgRegCount;
+    size_t callerFloatArgRegCount   = info.compFloatArgRegCount;
 
     // TODO-Linux-x64
     // TODO-ARM64
@@ -6962,8 +6962,8 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     // Count the callee args including implicit and hidden.
     // Note that GenericContext and VarargCookie are added by importer while
     // importing the call to gtCallArgs list along with explicit user args.
-    unsigned calleeArgRegCount = 0;
-    unsigned calleeFloatArgRegCount = 0;
+    size_t calleeArgRegCount = 0;
+    size_t calleeFloatArgRegCount = 0;
 
     if (callee->gtCallObjp) // thisPtr
     {
