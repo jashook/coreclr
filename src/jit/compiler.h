@@ -8264,11 +8264,11 @@ public:
         unsigned  compILargsCount;      // Number of arguments (incl. implicit but not hidden)
         unsigned  compArgsCount;        // Number of arguments (incl. implicit and     hidden)
 
-#ifdef FEATURE_MULTIREG_ARGS
+#if defined(FEATURE_MULTIREG_ARGS) && defined(FEATURE_FASTTAILCALL)
         unsigned  compArgRegCount;      // Number of incoming integer args
         unsigned  compFloatArgRegCount; // Number of incoming floating point args
-        unsigned  compStackSize;        // Incoming stack size
-#endif // FEATURE_MULTIREG_ARGS
+        size_t  compStackSize;        // Incoming stack size
+#endif // defined(FEATURE_MULTIREG_ARGS) && defined(FEATURE_FASTTAILCALL)
 
         unsigned  compRetBuffArg;       // position of hidden return param var (0, 1) (BAD_VAR_NUM means not present);
         int compTypeCtxtArg;            // position of hidden param for type context for generic code (CORINFO_CALLCONV_PARAMTYPE)

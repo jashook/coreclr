@@ -6934,6 +6934,14 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     }
 #endif
 
+    FILE* file = fopen("/Users/jashoo/projects/dev/output.txt", "a");
+    if (file != nullptr)
+    {
+        fprintf(file, "****** canFastTailCall: %s - (MethodHash=%08x)\n", info.compFullName, info.compMethodHash());
+    }
+
+    unsigned nCallerArgs = info.compArgsCount;
+
     // Note on vararg methods:
     // If the caller is vararg method, we don't know the number of arguments passed by caller's caller.
     // But we can be sure that in-coming arg area of vararg caller would be sufficient to hold its
@@ -6946,7 +6954,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     unsigned callerArgRegCount        = info.compArgRegCount;
     unsigned callerFloatArgRegCount   = info.compFloatArgRegCount;
 
-    // TODO-Linux-x86
+    // TODO-Linux-x64
     // TODO-ARM64
     // 
     // Currently we can track the caller's inbound stack size; however, we cannot
@@ -6986,8 +6994,10 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     // these won't contribute to out-going arg size.
     bool hasMultiByteArgs = false;
     bool hasTwoSlotSizedStruct = false;
+    unsigned nCalleeArgs = calleeArgRegCount; // Keep track of how many args we have.
     for (GenTreePtr args = callee->gtCallArgs; (args != nullptr) && !hasMultiByteArgs; args = args->gtOp.gtOp2)
     {
+        ++nCalleeArgs;
         assert(args->OperIsList());
         GenTreePtr argx = args->gtOp.gtOp1;
 
@@ -7014,8 +7024,6 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
             {
 #if defined(_TARGET_AMD64_) || defined(_TARGET_ARM64_)
 
-                // **NOTE**
-                //
                 // hasMultiByteArgs will determine if the struct can be passed
                 // in registers. If it cannot we will break the loop and not
                 // fastTailCall.
@@ -7108,9 +7116,20 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
         }
     }
 
+    auto logToFile = [file] (const char* str)
+    {
+        if (file != nullptr)
+        {
+            fprintf(file, "%s\n", str);
+            fprintf(file, "----------------------------------------------------------------\n");
+            fclose(file);
+        }
+    };
+
     // Go the slow route, if it has multi-byte params
     if (hasMultiByteArgs)
     {
+        logToFile("hasMultiByteArgs");
         return false;
     }
 
@@ -7130,7 +7149,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     if ((((calleeArgRegCount + calleeFloatArgRegCount) > maxRegArgs) && 
         ((calleeArgRegCount + calleeFloatArgRegCount) > (callerArgRegCount + callerFloatArgRegCount)))
     {
-        JITDUMP("Will not fastTailCall (((calleeArgRegCount + calleeFloatArgRegCount) > maxRegArgs) && ((calleeArgRegCount + calleeFloatArgRegCount) > (callerArgRegCount + callerFloatArgRegCount))");
+        logToFile("Will not fastTailCall (((calleeArgRegCount + calleeFloatArgRegCount) > maxRegArgs) && ((calleeArgRegCount + calleeFloatArgRegCount) > (callerArgRegCount + callerFloatArgRegCount))");
         return false;
     }
 
@@ -7150,13 +7169,10 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     unsigned calleeFloatStackArgCount = calleeFloatArgRegCount > maxFloatRegArgs ? calleeFloatArgRegCount - maxFloatRegArgs : 0;
 
     unsigned calleeStackArgCount = calleeIntStackArgCount + calleeFloatStackArgCount;
+    unsigned callerStackSize = info.compStackSize;
+    unsigned calleeStackSize = calleeStackArgCount * TARGET_POINTER_SIZE;
 
-    unsigned callerIntStackArgCount = callerArgRegCount > maxRegArgs ? callerArgRegCount - maxRegArgs : 0;
-    unsigned callerFloatStackArgCount = callerFloatArgRegCount > maxFloatRegArgs ? callerFloatArgRegCount - maxFloatRegArgs : 0;
-
-    unsigned callerStackArgCount = callerIntStackArgCount + callerFloatStackArgCount;
-
-    if (callerStackArgCount > 0 || calleeStackArgCount > 0)
+    if (callerStackSize > 0 || calleeStackSize > 0)
     {
         hasStackArgs = true;
     }
@@ -7165,13 +7181,26 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     // on the stack. Do not fastTailCall.
     if (hasStackArgs && hasTwoSlotSizedStruct)
     {
-        JITDUMP("Will not fastTailCall hasStackArgs && hasTwoSlotSizedStruct");
+        logToFile("Will not fastTailCall hasStackArgs && hasTwoSlotSizedStruct");
+        return false;
+    }
+    
+    // TODO-Linux-x64
+    // TODO-ARM64
+    //
+    // LowerFastTailCall current assumes nCalleeArgs == nCallerArgs. This is
+    // not true in many cases on x64 linux, remove this pessimization when
+    // LowerFastTailCall is fixed. See https://github.com/dotnet/coreclr/issues/12468
+    // for more information.
+    if (hasStackArgs && (nCalleeArgs != nCallerArgs))
+    {
+        logToFile("Will not fastTailCall hasStackArgs && (nCalleeArgs != nCallerArgs)");
         return false;
     }
 
-    if (calleeStackArgCount > callerStackArgCount)
+    if (calleeStackSize > callerStackSize)
     {
-        JITDUMP("Will not fastTailCall calleeStackArgCount > callerStackArgCount");
+        logToFile("Will not fastTailCall calleeStackArgCount > callerStackArgCount");
         return false;
     }
 
@@ -7181,7 +7210,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
 
 #endif //  WINDOWS_AMD64_ABI
 
-    JITDUMP("Will fastTailCall");
+    logToFile("Will fastTailCall");
     return true;
 #else // FEATURE_FASTTAILCALL
     return false;

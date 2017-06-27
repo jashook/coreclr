@@ -246,7 +246,8 @@ void Compiler::lvaInitTypeRef()
     unsigned   argRegCount      = 0;
     unsigned   floatingRegCount = 0;
     unsigned   stackArgCount    = 0;
-    unsigned   stackSize        = 0;
+    size_t     stackSize        = 0;
+    unsigned   compArgCount     = info.compArgsCount;
 
     auto incrementRegCount = [&floatingRegCount, &argRegCount](LclVarDsc* varDsc)
     {
@@ -256,7 +257,7 @@ void Compiler::lvaInitTypeRef()
     unsigned   argNum;
     LclVarDsc* curDsc;
 
-    for (curDsc = lvaTable, argNum = 0; argNum < info.compMethodInfo->args.numArgs; argNum++, curDsc++)
+    for (curDsc = lvaTable, argNum = 0; argNum < varDscInfo.varNum; argNum++, curDsc++)
     {
         if (curDsc->lvIsRegArg)
         {
@@ -269,7 +270,7 @@ void Compiler::lvaInitTypeRef()
             }
 #endif // defined(FEATURE_MULTIREG_ARGS) && defined(UNIX_AMD64_ABI)
         }
-        if (varTypeIsStruct(curDsc))
+        else if (varTypeIsStruct(curDsc))
         {
             stackSize += curDsc->lvSize();
         }
@@ -305,27 +306,8 @@ void Compiler::lvaInitTypeRef()
         if (corInfoType == CORINFO_TYPE_CLASS)
         {
             CORINFO_CLASS_HANDLE clsHnd = info.compCompHnd->getArgClass(&info.compMethodInfo->locals, localsSig);
-    
-#if FEATURE_FASTTAILCALL
-            stackSize += roundUp(compGetTypeSize(corInfoType, clsHnd), TARGET_POINTER_SIZE);
-#endif // FEATURE_FASTTAILCALL
-
             lvaSetClass(varNum, clsHnd);
         }
-
-#if FEATURE_FASTTAILCALL
-        else if(corInfoType == CORINFO_TYPE_VALUECLASS)
-        {
-            CORINFO_CLASS_HANDLE typeHandle = varDsc->lvVerTypeInfo.GetClassHandle();
-            stackSize += info.compCompHnd->getClassSize(typeHandle);
-        }
-
-        else
-        {
-            stackSize += TARGET_POINTER_SIZE; // Use is one slot size.
-        }
-#endif // FEATURE_FASTTAILCALL
-
     }
 
 #if FEATURE_FASTTAILCALL
