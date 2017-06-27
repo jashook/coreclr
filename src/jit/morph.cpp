@@ -6934,12 +6934,6 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     }
 #endif
 
-    FILE* file = fopen("/Users/jashoo/projects/dev/output.txt", "a");
-    if (file != nullptr)
-    {
-        fprintf(file, "****** canFastTailCall: %s - (MethodHash=%08x)\n", info.compFullName, info.compMethodHash());
-    }
-
     unsigned nCallerArgs = info.compArgsCount;
 
     // Note on vararg methods:
@@ -7116,20 +7110,10 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
         }
     }
 
-    auto logToFile = [file] (const char* str)
-    {
-        if (file != nullptr)
-        {
-            fprintf(file, "%s\n", str);
-            fprintf(file, "----------------------------------------------------------------\n");
-            fclose(file);
-        }
-    };
-
     // Go the slow route, if it has multi-byte params
     if (hasMultiByteArgs)
     {
-        logToFile("hasMultiByteArgs");
+        JITDUMP("hasMultiByteArgs");
         return false;
     }
 
@@ -7149,7 +7133,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     if ((((calleeArgRegCount + calleeFloatArgRegCount) > maxRegArgs) && 
         ((calleeArgRegCount + calleeFloatArgRegCount) > (callerArgRegCount + callerFloatArgRegCount)))
     {
-        logToFile("Will not fastTailCall (((calleeArgRegCount + calleeFloatArgRegCount) > maxRegArgs) && ((calleeArgRegCount + calleeFloatArgRegCount) > (callerArgRegCount + callerFloatArgRegCount))");
+        JITDUMP("Will not fastTailCall (((calleeArgRegCount + calleeFloatArgRegCount) > maxRegArgs) && ((calleeArgRegCount + calleeFloatArgRegCount) > (callerArgRegCount + callerFloatArgRegCount))");
         return false;
     }
 
@@ -7181,7 +7165,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     // on the stack. Do not fastTailCall.
     if (hasStackArgs && hasTwoSlotSizedStruct)
     {
-        logToFile("Will not fastTailCall hasStackArgs && hasTwoSlotSizedStruct");
+        JITDUMP("Will not fastTailCall hasStackArgs && hasTwoSlotSizedStruct");
         return false;
     }
     
@@ -7194,13 +7178,13 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     // for more information.
     if (hasStackArgs && (nCalleeArgs != nCallerArgs))
     {
-        logToFile("Will not fastTailCall hasStackArgs && (nCalleeArgs != nCallerArgs)");
+        JITDUMP("Will not fastTailCall hasStackArgs && (nCalleeArgs != nCallerArgs)");
         return false;
     }
 
     if (calleeStackSize > callerStackSize)
     {
-        logToFile("Will not fastTailCall calleeStackArgCount > callerStackArgCount");
+        JITDUMP("Will not fastTailCall calleeStackArgCount > callerStackArgCount");
         return false;
     }
 
@@ -7210,7 +7194,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
 
 #endif //  WINDOWS_AMD64_ABI
 
-    logToFile("Will fastTailCall");
+    JITDUMP("Will fastTailCall");
     return true;
 #else // FEATURE_FASTTAILCALL
     return false;
