@@ -7074,7 +7074,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
                 else
                 {
                     // Structs are either passed in 1 or 2 (64-bit) slots
-                    unsigned roundupSize = roundUp(info.compCompHnd->getClassSize(argx->gtArgPlace.gtArgPlaceClsHnd),
+                    size_t roundupSize = roundUp(info.compCompHnd->getClassSize(argx->gtArgPlace.gtArgPlaceClsHnd),
                                                    TARGET_POINTER_SIZE);
                     size = roundupSize / TARGET_POINTER_SIZE;
 
@@ -7153,7 +7153,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     unsigned calleeFloatStackArgCount = calleeFloatArgRegCount > maxFloatRegArgs ? calleeFloatArgRegCount - maxFloatRegArgs : 0;
 
     unsigned calleeStackArgCount = calleeIntStackArgCount + calleeFloatStackArgCount;
-    unsigned callerStackSize = info.compStackSize;
+    size_t callerStackSize = info.compStackSize;
     unsigned calleeStackSize = calleeStackArgCount * TARGET_POINTER_SIZE;
 
     if (callerStackSize > 0 || calleeStackSize > 0)
