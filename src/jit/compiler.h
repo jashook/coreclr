@@ -509,14 +509,14 @@ public:
                 // then it will be passed as a reference.
                 stackSize = TARGET_POINTER_SIZE;
             }
-#endif //
+#endif // defined(_TARGET_ARM64_)
 
 #else // !_TARGET_ARM64_ !WINDOWS_AMD64_ABI !FEATURE_UNIX_AMD64_STRUCT_PASSING
 
-        NYI("Unsupported target.");
-        unreached();
+            NYI("Unsupported target.");
+            unreached();
 
-#endif // WINDOWS_AM64_ABI
+#endif
         }
         else
         {

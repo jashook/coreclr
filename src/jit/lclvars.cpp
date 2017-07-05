@@ -273,7 +273,7 @@ void Compiler::lvaInitTypeRef()
             }
 #endif // FEATURE_MULTIREG_ARGS
         }
-        else 
+        else
         {
             stackSize += curDsc->lvArgStackSize();
         }
