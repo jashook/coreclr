@@ -6960,24 +6960,24 @@ void Compiler::fgMorphCallInlineHelper(GenTreeCall* call, InlineResult* result)
 //
 // Exceptions:
 //    1) If the callee has structs which cannot be enregistered it will be reported
-//    as cannot fast tail call. This is a case which can be removed. See 
+//    as cannot fast tail call. This is a case which can be removed. See
 //    https://github.com/dotnet/coreclr/issues/12644.
 //
-//    2) If the caller or callee has stack arguments and the callee has more 
-//    arguments then the caller it will be reported as cannot fast tail call. 
-//    This is due to LowerFastTailCall assuming that nCalleeArgs <= nCallerArgs, 
+//    2) If the caller or callee has stack arguments and the callee has more
+//    arguments then the caller it will be reported as cannot fast tail call.
+//    This is due to LowerFastTailCall assuming that nCalleeArgs <= nCallerArgs,
 //    which is always true on Windows Amd64.
 //
-//    3) If the callee has a 9 to 16 byte struct argument and the callee has 
-//    stack arguments, the decision will be to not fast tail call. This is 
-//    because before fgMorphArgs is done, the struct is unknown whether it 
-//    will be placed on the stack or enregistered. Therefore, the conservative 
+//    3) If the callee has a 9 to 16 byte struct argument and the callee has
+//    stack arguments, the decision will be to not fast tail call. This is
+//    because before fgMorphArgs is done, the struct is unknown whether it
+//    will be placed on the stack or enregistered. Therefore, the conservative
 //    decision of do not fast tail call is taken.
 //
 //    4) Arm64 Only, if there is an HFA arguments and the callee has stack
-//    arguments, the decision will be reported as cannot fast tail call. 
-//    This is because before fgMorphArgs is done, the struct is unknown whether it 
-//    will be placed on the stack or enregistered. Therefore, the conservative 
+//    arguments, the decision will be reported as cannot fast tail call.
+//    This is because before fgMorphArgs is done, the struct is unknown whether it
+//    will be placed on the stack or enregistered. Therefore, the conservative
 //    decision of do not fast tail call is taken.
 //
 // Can fast tail call examples (amd64 Unix):
@@ -6987,11 +6987,13 @@ void Compiler::fgMorphCallInlineHelper(GenTreeCall* call, InlineResult* result)
 //    callee(int, int, float, int)
 //
 //    -- Callee requires stack space that is equal to the caller --
-//    caller({ int, int }, { int, int }, { int }, { int }, { int }, { int }) -- 6 int register arguments, 16 byte stack space
+//    caller({ int, int }, { int, int }, { int }, { int }, { int }, { int }) -- 6 int register arguments, 16 byte stack
+//    space
 //    callee(int, int, int, int, int, int, int, int) -- 6 int register arguments, 16 byte stack space
 //
 //    -- Callee requires stack space that is less than the caller --
-//    caller({ int, int }, int, { int, int }, int, { int, int }, { int, int }) 6 int register arguments, 32 byte stack space
+//    caller({ int, int }, int, { int, int }, int, { int, int }, { int, int }) 6 int register arguments, 32 byte stack
+//    space
 //    callee(int, int, int, int, int, int, { int, int } ) // 6 int register arguments, 16 byte stack space
 //
 //    -- Callee will have all register arguments --
@@ -7005,7 +7007,8 @@ void Compiler::fgMorphCallInlineHelper(GenTreeCall* call, InlineResult* result)
 //    callee(int, int, int, int, int, int, int, int) -- 6 int register arguments, 16 byte stack space
 //
 //    -- Callee has structs which cannot be enregistered --
-//    caller(float, float, float, float, float, float, float, float, { double, double, double }) -- 8 float register arguments, 24 byte stack space
+//    caller(float, float, float, float, float, float, float, float, { double, double, double }) -- 8 float register
+//    arguments, 24 byte stack space
 //    callee({ double, double, double }) -- 24 bytes stack space
 //
 //    -- Callee requires stack space and has a struct argument >8 bytes and <16 bytes --
@@ -7128,8 +7131,8 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
                 // hasMultiByteStackArgs will determine if the struct can be passed
                 // in registers. If it cannot we will break the loop and not
                 // fastTailCall. See https://github.com/dotnet/coreclr/issues/12644.
-                unsigned typeSize = 0;
-                hasMultiByteStackArgs  = !VarTypeIsMultiByteAndCanEnreg(argx->TypeGet(), objClass, &typeSize, false);
+                unsigned typeSize     = 0;
+                hasMultiByteStackArgs = !VarTypeIsMultiByteAndCanEnreg(argx->TypeGet(), objClass, &typeSize, false);
 
 #if defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)
                 SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
