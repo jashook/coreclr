@@ -249,7 +249,14 @@ void Compiler::lvaInitTypeRef()
     unsigned compArgCount     = info.compArgsCount;
 
     auto incrementRegCount = [&floatingRegCount, &argRegCount](LclVarDsc* varDsc) {
-        varDsc->IsFloatRegType() ? ++floatingRegCount : ++argRegCount;
+        if (varDsc->lvIsHfa())
+        {
+            floatingRegCount += varDsc->lvHfaSlots();
+        }
+        else
+        {
+            varDsc->IsFloatRegType() ? ++floatingRegCount : ++argRegCount;
+        }
     };
 
     unsigned   argNum;
@@ -259,13 +266,7 @@ void Compiler::lvaInitTypeRef()
     {
         if (curDsc->lvIsRegArg)
         {
-            // TODO-ARM64
-            //
-            // Currently incoming HFA are marked as address exposed.
-            assert(!curDsc->lvIsHfa());
-
             incrementRegCount(curDsc);
-
 #if FEATURE_MULTIREG_ARGS
             if (curDsc->lvOtherArgReg != REG_NA)
             {
