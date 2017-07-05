@@ -6909,15 +6909,118 @@ void Compiler::fgMorphCallInlineHelper(GenTreeCall* call, InlineResult* result)
 #endif
 }
 
-/*****************************************************************************
- *
- * Performs checks to see if this tail call can be optimized as epilog+jmp.
- */
+//------------------------------------------------------------------------
+// fgCanFastTailCall: Check to see if this tail call can be optimized as epilog+jmp.
+//
+// Arguments:
+//    callee - The callee to check
+//
+// Return Value:
+//    Returns true or false based on whether the callee can be fastTailCalled
+//
+// Notes:
+//    This function is target specific and each target will make the fastTailCall
+//    decision differently. See the notes below.
+//
+//
+// Windows Amd64:
+//    A fastTailCall decision can be made whenever the amount of callee arguments
+//    is larger than or equal to the amount of caller arguments or we have four
+//    or less callee arguments.
+//
+// Can fast tail call examples (amd64 Windows):
+//
+//    -- Callee will have all register arguments --
+//    caller(int, int, int, int)
+//    callee(int, int, float, int)
+//
+//    -- Callee requires stack space that is equal to the caller --
+//    caller(struct, struct, struct, struct, struct, struct)
+//    callee(int, int, int, int, int, int)
+//
+//    -- Callee requires stack space that is less than the caller --
+//    caller(struct, double, struct, float, struct, struct)
+//    callee(int, int, int, int, int)
+//
+//    -- Callee will have all register arguments --
+//    caller(int)
+//    callee(int, int, int, int)
+//
+// Cannot fast tail call examples (amd64 Windows):
+//
+//    -- Callee requires stack space that is larger than the caller --
+//    caller(struct, double, struct, float, struct, struct)
+//    callee(int, int, int, int, int, double, double, double)
+//
+// Unix Amd64 && Arm64:
+//    A fastTailCall decision can be made whenever the callee's stack space is
+//    less than or equal to the caller's stack space. There are many permutations
+//    of when the caller and callee have different stack sizes if there are
+//    structs being passed to either the caller or callee.
+//
+// Exceptions:
+//    1) If the callee has structs which cannot be enregistered it will be reported
+//    as cannot fast tail call. This is a case which can be removed. See 
+//    https://github.com/dotnet/coreclr/issues/12644.
+//
+//    2) If the caller or callee has stack arguments and the callee has more 
+//    arguments then the caller it will be reported as cannot fast tail call. 
+//    This is due to LowerFastTailCall assuming that nCalleeArgs <= nCallerArgs, 
+//    which is always true on Windows Amd64.
+//
+//    3) If the callee has a 9 to 16 byte struct argument and the callee has 
+//    stack arguments, the decision will be to not fast tail call. This is 
+//    because before fgMorphArgs is done, the struct is unknown whether it 
+//    will be placed on the stack or enregistered. Therefore, the conservative 
+//    decision of do not fast tail call is taken.
+//
+//    4) Arm64 Only, if there is an HFA arguments and the callee has stack
+//    arguments, the decision will be reported as cannot fast tail call. 
+//    This is because before fgMorphArgs is done, the struct is unknown whether it 
+//    will be placed on the stack or enregistered. Therefore, the conservative 
+//    decision of do not fast tail call is taken.
+//
+// Can fast tail call examples (amd64 Unix):
+//
+//    -- Callee will have all register arguments --
+//    caller(int, int, int, int)
+//    callee(int, int, float, int)
+//
+//    -- Callee requires stack space that is equal to the caller --
+//    caller({ int, int }, { int, int }, { int }, { int }, { int }, { int }) -- 6 int register arguments, 16 byte stack space
+//    callee(int, int, int, int, int, int, int, int) -- 6 int register arguments, 16 byte stack space
+//
+//    -- Callee requires stack space that is less than the caller --
+//    caller({ int, int }, int, { int, int }, int, { int, int }, { int, int }) 6 int register arguments, 32 byte stack space
+//    callee(int, int, int, int, int, int, { int, int } ) // 6 int register arguments, 16 byte stack space
+//
+//    -- Callee will have all register arguments --
+//    caller(int)
+//    callee(int, int, int, int)
+//
+// Cannot fast tail call examples (amd64 Unix):
+//
+//    -- Callee requires stack space that is larger than the caller --
+//    caller(float, float, float, float, float, float, float, float) -- 8 float register arguments
+//    callee(int, int, int, int, int, int, int, int) -- 6 int register arguments, 16 byte stack space
+//
+//    -- Callee has structs which cannot be enregistered --
+//    caller(float, float, float, float, float, float, float, float, { double, double, double }) -- 8 float register arguments, 24 byte stack space
+//    callee({ double, double, double }) -- 24 bytes stack space
+//
+//    -- Callee requires stack space and has a struct argument >8 bytes and <16 bytes --
+//    caller(int, int, int, int, int, int, { double, double, double }) -- 6 int register arguments, 24 byte stack space
+//    callee(int, int, int, int, int, int, { int, int }) -- 6 int registers, 16 byte stack space
+//
+//    -- Caller requires stack space and nCalleeArgs > nCallerArgs --
+//    caller({ double, double, double, double, double, double }) // 48 byte stack
+//    callee(int, int) -- 2 int registers
+
 bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
 {
 #if FEATURE_FASTTAILCALL
-    // Reached here means that return types of caller and callee are tail call compatible.
-    // In case of structs that can be returned in a register, compRetNativeType is set to the actual return type.
+    // To reach here means that the return types of the caller and callee are tail call compatible.
+    // In the case of structs that can be returned in a register, compRetNativeType is set to the actual return type.
     //
     // In an implicit tail call case callSig may not be available but it is guaranteed to be available
     // for explicit tail call cases.  The reason implicit tail case callSig may not be available is that
@@ -6949,8 +7052,6 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
 #endif // DEBUG
     };
 
-    unsigned nCallerArgs = info.compArgsCount;
-
     // Note on vararg methods:
     // If the caller is vararg method, we don't know the number of arguments passed by caller's caller.
     // But we can be sure that in-coming arg area of vararg caller would be sufficient to hold its
@@ -6958,21 +7059,10 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     // out-going area required for callee is bounded by caller's fixed argument space.
     //
     // Note that callee being a vararg method is not a problem since we can account the params being passed.
+    unsigned nCallerArgs = info.compArgsCount;
 
-    // Count of caller args including implicit and hidden (i.e. thisPtr, RetBuf, GenericContext, VarargCookie)
     size_t callerArgRegCount      = info.compArgRegCount;
     size_t callerFloatArgRegCount = info.compFloatArgRegCount;
-
-    // TODO-Linux-x64
-    // TODO-ARM64
-    //
-    // Currently we can track the caller's inbound stack size; however, we cannot
-    // easily determine the caller's outbound stack size (the callee's inbound stack
-    // size). This information is computed in fgMorphArgs which currently is
-    // dependent on the canFastTailCall decision.
-    //
-    // Note that we can get around this by excluding all struct which cannot
-    // be engregistered.
 
     // Count the callee args including implicit and hidden.
     // Note that GenericContext and VarargCookie are added by importer while
@@ -7002,11 +7092,11 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     // that cannot be passed in a register. Note that we don't need to count
     // non-standard and secret params passed in registers (e.g. R10, R11) since
     // these won't contribute to out-going arg size.
-    bool   hasMultiByteArgs      = false;
+    bool   hasMultiByteStackArgs = false;
     bool   hasTwoSlotSizedStruct = false;
     bool   hasHfaArg             = false;
     size_t nCalleeArgs           = calleeArgRegCount; // Keep track of how many args we have.
-    for (GenTreePtr args = callee->gtCallArgs; (args != nullptr) && !hasMultiByteArgs; args = args->gtOp.gtOp2)
+    for (GenTreePtr args = callee->gtCallArgs; (args != nullptr) && !hasMultiByteStackArgs; args = args->gtOp.gtOp2)
     {
         ++nCalleeArgs;
         assert(args->OperIsList());
@@ -7035,11 +7125,11 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
             {
 #if defined(_TARGET_AMD64_) || defined(_TARGET_ARM64_)
 
-                // hasMultiByteArgs will determine if the struct can be passed
+                // hasMultiByteStackArgs will determine if the struct can be passed
                 // in registers. If it cannot we will break the loop and not
-                // fastTailCall.
+                // fastTailCall. See https://github.com/dotnet/coreclr/issues/12644.
                 unsigned typeSize = 0;
-                hasMultiByteArgs  = !VarTypeIsMultiByteAndCanEnreg(argx->TypeGet(), objClass, &typeSize, false);
+                hasMultiByteStackArgs  = !VarTypeIsMultiByteAndCanEnreg(argx->TypeGet(), objClass, &typeSize, false);
 
 #if defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)
                 SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
@@ -7047,14 +7137,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
                 assert(objClass != nullptr);
                 eeGetSystemVAmd64PassStructInRegisterDescriptor(objClass, &structDesc);
 
-                // TODO-AMD64-Unix. Here we have made the assumption that multibyte struct
-                // arguments will cause a no fastTailCall decision.
-                if (!structDesc.passedInRegisters)
-                {
-                    // TODO-AMD64-Unix do not approx callee stack size.
-                    noway_assert(hasMultiByteArgs);
-                }
-                else
+                if (structDesc.passedInRegisters)
                 {
                     if (structDesc.eightByteCount == 2)
                     {
@@ -7078,6 +7161,12 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
                         }
                     }
                 }
+                else if (!hasMultiByteStackArgs)
+                {
+                    // TODO-AMD64-Unix. Here we have made the assumption that multibyte struct
+                    // arguments will cause a no fastTailCall decision.
+                    unreached();
+                }
 
 #elif defined(_TARGET_ARM64_) // ARM64
                 var_types hfaType  = GetHfaType(argx);
@@ -7094,10 +7183,11 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
                     size_t roundupSize = roundUp(typeSize, TARGET_POINTER_SIZE);
                     size               = roundupSize / TARGET_POINTER_SIZE;
 
-                    if (size > 2)
+                    if (size > 2 && !hasMultiByteStackArgs)
                     {
-                        // TODO-ARM64-Unix do not approx callee stack size.
-                        noway_assert(hasMultiByteArgs);
+                        // TODO-AMD64-Unix. Here we have made the assumption that multibyte struct
+                        // arguments will cause a no fastTailCall decision.
+                        unreached();
                     }
 
                     else if (size == 2)
@@ -7121,7 +7211,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
             }
             else
             {
-                hasMultiByteArgs = true;
+                hasMultiByteStackArgs = true;
             }
         }
         else
@@ -7130,10 +7220,11 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
         }
     }
 
-    // Go the slow route, if it has multi-byte params
-    if (hasMultiByteArgs)
+    // Go the slow route, if it has multi-byte params. This does not need to
+    // happen see https://github.com/dotnet/coreclr/issues/12644.
+    if (hasMultiByteStackArgs)
     {
-        reportFastTailCallDecision("Will not fastTailCall hasMultiByteArgs");
+        reportFastTailCallDecision("Will not fastTailCall hasMultiByteStackArgs");
         return false;
     }
 
@@ -7171,16 +7262,6 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
 
 #elif (defined(_TARGET_AMD64_) && defined(UNIX_AMD64_ABI)) || defined(_TARGET_ARM64_)
 
-    // Incoming HFA Arguments are set to addressExposed. There should not be a
-    // code path that asks for a fastTailCall decision with an HFA argument.
-    if (hasHfaArg)
-    {
-        assert(!hasHfaArg);
-
-        // Out of caution return false if there is an HFA arg.
-        return false;
-    }
-
     // For *nix Amd64 and Arm64 check to see if all arguments for the callee
     // and caller are passing in registers. If not, ensure that the outgoing argument stack size
     // requirement for the callee is less than or equal to the caller's entire stack frame usage.
@@ -7204,11 +7285,17 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
         hasStackArgs = true;
     }
 
-    // We have a >8 byte struct in the callee and arguments that have to go
-    // on the stack. Do not fastTailCall.
-    if (hasStackArgs && hasTwoSlotSizedStruct)
+    // Callee has a >8 and <=16 byte struct and arguments that have to go on the stack. Do not fastTailCall.
+    if (calleeStackSize > 0 && hasTwoSlotSizedStruct)
     {
-        reportFastTailCallDecision("Will not fastTailCall hasStackArgs && hasTwoSlotSizedStruct");
+        reportFastTailCallDecision("Will not fastTailCall calleeStackSize > 0 && hasTwoSlotSizedStruct");
+        return false;
+    }
+
+    // Callee has an HFA struct and arguments that have to go on the stack. Do not fastTailCall.
+    if (calleeStackSize > 0 && hasHfaArg)
+    {
+        reportFastTailCallDecision("Will not fastTailCall calleeStackSize > 0 && hasHfaArg");
         return false;
     }
 

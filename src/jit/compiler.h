@@ -505,8 +505,8 @@ public:
 #if defined(_TARGET_ARM64_)
             if (stackSize > TARGET_POINTER_SIZE * 2)
             {
-                // If the size is greater than the special to slot struct
-                // then it will be passed as a reference.
+                // If the size is greater than 16 bytes then it will
+                // be passed by reference.
                 stackSize = TARGET_POINTER_SIZE;
             }
 #endif // defined(_TARGET_ARM64_)
@@ -516,7 +516,7 @@ public:
             NYI("Unsupported target.");
             unreached();
 
-#endif
+#endif //  !_TARGET_ARM64_ !WINDOWS_AMD64_ABI !FEATURE_UNIX_AMD64_STRUCT_PASSING
         }
         else
         {
