@@ -496,14 +496,14 @@ public:
         if (varTypeIsStruct(this))
         {
 #if defined(WINDOWS_AMD64_ABI)
-            // StackSize is always the pointer size.
+            // Structs are either passed by reference or can be passed by value using one pointer
             stackSize = TARGET_POINTER_SIZE;
 #elif defined(_TARGET_ARM64_) || defined(FEATURE_UNIX_AMD64_STRUCT_PASSING)
-            // lvSize should roundup.
+            // lvSize performs a roundup.
             stackSize = this->lvSize();
 
 #if defined(_TARGET_ARM64_)
-            if (stackSize > TARGET_POINTER_SIZE * 2)
+            if (stackSize > TARGET_POINTER_SIZE * 2 && !this->lvIsHfa())
             {
                 // If the size is greater than 16 bytes then it will
                 // be passed by reference.

@@ -7040,13 +7040,32 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     }
 #endif
 
-    auto reportFastTailCallDecision = [this](const char* msg) {
+    auto reportFastTailCallDecision = [this, callee](const char* msg, size_t callerStackSize, size_t calleeStackSize) {
 #if DEBUG
         if ((JitConfig.JitReportFastTailCallDecisions() & 1) == 1)
         {
-            printf("fgCanFastTailCall: %s - (MethodHash=%08x) -- Decision:  ", info.compFullName,
-                   info.compMethodHash());
-            printf("%s\n", msg);
+            if (callee->gtCallType != CT_INDIRECT)
+            {
+                const char* methodName;
+                const char* className;
+
+                methodName = eeGetMethodFullName(callee->gtCallMethHnd);
+
+                printf("Caller: %s\nCallee: %s -- Decision: ", info.compFullName, methodName);
+            }
+            else
+            {
+                printf("Caller: %s\nCallee: IndirectCall -- Decision: ", info.compFullName);
+            }
+
+            if (callerStackSize != -1)
+            {
+                printf("%s (CallerStackSize: %d, CalleeStackSize: %d)\n\n", msg, callerStackSize, calleeStackSize);
+            }
+            else
+            {
+                printf("%s\n\n", msg);
+            }
         }
         else
         {
@@ -7086,7 +7105,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
         // Otherwise go the slow route.
         if (info.compRetBuffArg == BAD_VAR_NUM)
         {
-            reportFastTailCallDecision("Calle has RetBuf but caller does not.");
+            reportFastTailCallDecision("Calle has RetBuf but caller does not.", 0, 0);
             return false;
         }
     }
@@ -7099,7 +7118,8 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     bool   hasTwoSlotSizedStruct = false;
     bool   hasHfaArg             = false;
     size_t nCalleeArgs           = calleeArgRegCount; // Keep track of how many args we have.
-    for (GenTreePtr args = callee->gtCallArgs; (args != nullptr) && !hasMultiByteStackArgs; args = args->gtOp.gtOp2)
+    size_t calleeStackSize       = 0;
+    for (GenTreePtr args = callee->gtCallArgs; (args != nullptr); args = args->gtOp.gtOp2)
     {
         ++nCalleeArgs;
         assert(args->OperIsList());
@@ -7164,11 +7184,9 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
                         }
                     }
                 }
-                else if (!hasMultiByteStackArgs)
+                else
                 {
-                    // TODO-AMD64-Unix. Here we have made the assumption that multibyte struct
-                    // arguments will cause a no fastTailCall decision.
-                    unreached();
+                    calleeStackSize += roundUp(typeSize, TARGET_POINTER_SIZE);
                 }
 
 #elif defined(_TARGET_ARM64_) // ARM64
@@ -7179,6 +7197,8 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
                 if (isHfaArg)
                 {
                     hasHfaArg = true;
+
+                    calleeFloatArgRegCount += GetHfaCount(argx);
                 }
                 else
                 {
@@ -7186,20 +7206,19 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
                     size_t roundupSize = roundUp(typeSize, TARGET_POINTER_SIZE);
                     size               = roundupSize / TARGET_POINTER_SIZE;
 
-                    if (size > 2 && !hasMultiByteStackArgs)
+                    if (size > 2)
                     {
-                        // TODO-AMD64-Unix. Here we have made the assumption that multibyte struct
-                        // arguments will cause a no fastTailCall decision.
-                        unreached();
+                        size = 1;
                     }
 
                     else if (size == 2)
                     {
                         hasTwoSlotSizedStruct = true;
                     }
-                }
 
-                calleeArgRegCount += size;
+                    calleeArgRegCount += size;
+
+                }
 
 #elif defined(WINDOWS_AMD64_ABI)
 
@@ -7221,14 +7240,12 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
         {
             varTypeIsFloating(argx) ? ++calleeFloatArgRegCount : ++calleeArgRegCount;
         }
-    }
 
-    // Go the slow route, if it has multi-byte params. This does not need to
-    // happen see https://github.com/dotnet/coreclr/issues/12644.
-    if (hasMultiByteStackArgs)
-    {
-        reportFastTailCallDecision("Will not fastTailCall hasMultiByteStackArgs");
-        return false;
+#if !DEBUG
+        // We can break early on multiByte cases.
+        // If in debug we can continue calculating the stack usage.
+        break;
+#endif // !DEBUG
     }
 
     const unsigned maxRegArgs = MAX_REG_ARG;
@@ -7242,10 +7259,11 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
 // as non-interruptible for fast tail calls.
 
 #ifdef WINDOWS_AMD64_ABI
+    assert (calleeStackSize == 0);
     size_t calleeStackSlots = ((calleeArgRegCount + calleeFloatArgRegCount) > maxRegArgs)
                                   ? (calleeArgRegCount + calleeFloatArgRegCount) - maxRegArgs
                                   : 0;
-    size_t calleeStackSize = calleeStackSlots * TARGET_POINTER_SIZE;
+    calleeStackSize = calleeStackSlots * TARGET_POINTER_SIZE;
     size_t callerStackSize = info.compArgStackSize;
 
     bool hasStackArgs = false;
@@ -7255,11 +7273,19 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
         hasStackArgs = true;
     }
 
+    // Go the slow route, if it has multi-byte params. This does not need to
+    // happen see https://github.com/dotnet/coreclr/issues/12644.
+    if (hasMultiByteStackArgs)
+    {
+        reportFastTailCallDecision("Will not fastTailCall hasMultiByteStackArgs", callerStackSize, calleeStackSize);
+        return false;
+    }
+
     // x64 Windows: If we have more callee registers used than MAX_REG_ARG, then
     // make sure the callee's incoming arguments is less than the caller's
     if (hasStackArgs && (nCalleeArgs > nCallerArgs))
     {
-        reportFastTailCallDecision("Will not fastTailCall hasStackArgs && (nCalleeArgs > nCallerArgs)");
+        reportFastTailCallDecision("Will not fastTailCall hasStackArgs && (nCalleeArgs > nCallerArgs)", callerStackSize, calleeStackSize);
         return false;
     }
 
@@ -7281,24 +7307,32 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
 
     size_t calleeStackArgCount = calleeIntStackArgCount + calleeFloatStackArgCount;
     size_t callerStackSize     = info.compArgStackSize;
-    size_t calleeStackSize     = calleeStackArgCount * TARGET_POINTER_SIZE;
+    calleeStackSize     += calleeStackArgCount * TARGET_POINTER_SIZE;
 
     if (callerStackSize > 0 || calleeStackSize > 0)
     {
         hasStackArgs = true;
     }
 
-    // Callee has a >8 and <=16 byte struct and arguments that have to go on the stack. Do not fastTailCall.
-    if (calleeStackSize > 0 && hasTwoSlotSizedStruct)
+    // Go the slow route, if it has multi-byte params. This does not need to
+    // happen see https://github.com/dotnet/coreclr/issues/12644.
+    if (hasMultiByteStackArgs)
     {
-        reportFastTailCallDecision("Will not fastTailCall calleeStackSize > 0 && hasTwoSlotSizedStruct");
+        reportFastTailCallDecision("Will not fastTailCall hasMultiByteStackArgs", callerStackSize, calleeStackSize);
         return false;
     }
 
-    // Callee has an HFA struct and arguments that have to go on the stack. Do not fastTailCall.
+    // Callee has a >8 and <=16 byte struct and arguments that has to go on the stack. Do not fastTailCall.
+    if (calleeStackSize > 0 && hasTwoSlotSizedStruct)
+    {
+        reportFastTailCallDecision("Will not fastTailCall calleeStackSize > 0 && hasTwoSlotSizedStruct", callerStackSize, calleeStackSize);
+        return false;
+    }
+
+    // Callee has an HFA struct and arguments that has to go on the stack. Do not fastTailCall.
     if (calleeStackSize > 0 && hasHfaArg)
     {
-        reportFastTailCallDecision("Will not fastTailCall calleeStackSize > 0 && hasHfaArg");
+        reportFastTailCallDecision("Will not fastTailCall calleeStackSize > 0 && hasHfaArg", callerStackSize, calleeStackSize);
         return false;
     }
 
@@ -7311,13 +7345,13 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
     // for more information.
     if (hasStackArgs && (nCalleeArgs > nCallerArgs))
     {
-        reportFastTailCallDecision("Will not fastTailCall hasStackArgs && (nCalleeArgs > nCallerArgs)");
+        reportFastTailCallDecision("Will not fastTailCall hasStackArgs && (nCalleeArgs > nCallerArgs)", callerStackSize, calleeStackSize);
         return false;
     }
 
     if (calleeStackSize > callerStackSize)
     {
-        reportFastTailCallDecision("Will not fastTailCall calleeStackArgCount > callerStackArgCount");
+        reportFastTailCallDecision("Will not fastTailCall calleeStackSize > callerStackSize", callerStackSize, calleeStackSize);
         return false;
     }
 
@@ -7327,7 +7361,7 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
 
 #endif //  WINDOWS_AMD64_ABI
 
-    reportFastTailCallDecision("Will fastTailCall");
+    reportFastTailCallDecision("Will fastTailCall", callerStackSize, calleeStackSize);
     return true;
 #else // FEATURE_FASTTAILCALL
     return false;

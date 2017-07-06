@@ -58,7 +58,9 @@ public class FastTailCallCandidates
         CheckOutput(CallerGithubIssue12468(1, 2, 3, 4, 5, 6, 7, 8, new StructSizeSixteenNotExplicit(1, 2)));
         CheckOutput(DoNotFastTailCallSimple(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14));
         CheckOutput(StackBasedCaller(16, new StructSizeTwentyFour(1, 2, 3)));
-        CheckOutput(CallerSimpleHFACase(new HFASize32(1.0f, 2.0f, 3.0f, 4.0f), 1.0, 2.0, 3.0, 4.0));
+        CheckOutput(CallerSimpleHFACase(new HFASize32(1.0, 2.0, 3.0, 4.0), 1.0, 2.0, 3.0, 4.0));
+        CheckOutput(CallerHFACaseWithStack(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, new HFASize32(1.0, 2.0, 3.0, 4.0)));
+        CheckOutput(CallerHFACaseCalleeOnly(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0));
 
         return s_ret_value;
 
@@ -441,15 +443,14 @@ public class FastTailCallCandidates
         }
     }
 
-    [StructLayout(LayoutKind.Sequential)]
     public struct HFASize32
     {
-        public float a;
-        public float b;
-        public float c;
-        public float d;
+        public double a;
+        public double b;
+        public double c;
+        public double d;
 
-        public HFASize32(float a, float b, float c, float d)
+        public HFASize32(double a, double b, double c, double d)
         {
             this.a = a;
             this.b = b;
@@ -469,7 +470,7 @@ public class FastTailCallCandidates
     /// caller has 8 register arguments and no stack space
     /// callee has 8 register arguments and no stack space
     ///
-    /// x64 *nux:
+    /// x64 *nix:
     /// caller has 4 register arguments and 64 bytes of stack space
     /// callee has 8 register arguments
     ///
@@ -508,7 +509,6 @@ public class FastTailCallCandidates
         }
     }
 
-
     /// <summary>
     /// Possible to fastTailCall only on arm64
     /// </summary>
@@ -520,11 +520,11 @@ public class FastTailCallCandidates
     /// caller has 8 register arguments and no stack space
     /// callee has 8 register arguments and no stack space
     ///
-    /// x64 *nux:
+    /// x64 *nix:
     /// caller has 4 register arguments and 64 bytes of stack space
     /// callee has 8 register arguments
     ///
-    /// Arm64 can fastTailCall while x64 linux cannot
+    /// Arm64 and linux x64 can both fast tail call
     ///
     /// Return 100 is a pass.
     /// Return 107 is a failure.
@@ -561,6 +561,220 @@ public class FastTailCallCandidates
                                        b,
                                        two,
                                        one);
+        }
+    }
+
+    /// <summary>
+    /// Possible to fastTailCall only on arm64
+    /// </summary>
+    /// <remarks>
+    ///
+    /// This test case is really only interesting on arm64
+    ///
+    /// Arm64:
+    /// caller has 8 register arguments and 32 bytes of stack space
+    /// callee has 8 register arguments and 16 bytes of stack space
+    ///
+    /// x64 *nix:
+    /// caller has 8 register arguments and 32 bytes of stack space
+    /// callee has 8 register arguments and 16 bytes of stack space
+    ///
+    /// Arm64 can fastTailCall while x64 linux cannot
+    ///
+    /// Return 100 is a pass.
+    /// Return 108 is a failure.
+    ///
+    /// </remarks>
+    public static int CalleeHFAStackSpace(double one,
+                                          double two,
+                                          double three,
+                                          double four,
+                                          double five,
+                                          double six,
+                                          double seven,
+                                          double eight,
+                                          double nine,
+                                          double ten)
+    {
+        int count = 0;
+        for (double i = 0; i < one; ++i)
+        {
+            if (i % 2 == 0)
+            {
+                ++count;
+            }
+        }
+
+        if (count == 1)
+        {
+            return 100;
+        }
+
+        else
+        {
+            return 108;
+        }
+    }
+
+    /// <summary>
+    /// Possible to fastTailCall only on arm64
+    /// </summary>
+    /// <remarks>
+    ///
+    /// This test case is really only interesting on arm64
+    ///
+    /// Arm64:
+    /// caller has 8 register arguments and 32 bytes of stack space
+    /// callee has 8 register arguments and 16 bytes of stack space
+    ///
+    /// x64 *nix:
+    /// caller has 8 register arguments and 32 bytes of stack space
+    /// callee has 8 register arguments and 16 bytes of stack space
+    ///
+    /// Arm64 can fastTailCall while x64 linux cannot
+    ///
+    /// Return 100 is a pass.
+    /// Return 108 is a failure.
+    ///
+    /// </remarks>
+    public static int CallerHFACaseWithStack(double one,
+                                             double two,
+                                             double three,
+                                             double four,
+                                             double five,
+                                             double six,
+                                             double seven,
+                                             double eight,
+                                             HFASize32 s1)
+    {
+        if (one % 2 == 0)
+        {
+            double a = one * 100;
+            double b = one + 1100;
+            return CalleeHFAStackSpace(one, 
+                                       two,
+                                       three,
+                                       four,
+                                       a,
+                                       b,
+                                       five,
+                                       six,
+                                       seven,
+                                       eight);
+        }
+        else
+        {
+            double b = one + 1599;
+            double a = one + 16;
+            return CalleeHFAStackSpace(one, 
+                                       two,
+                                       three,
+                                       four,
+                                       a,
+                                       b,
+                                       six,
+                                       five,
+                                       seven,
+                                       eight);
+        }
+    }
+
+    /// <summary>
+    /// Possible to fastTailCall only on arm64
+    /// </summary>
+    /// <remarks>
+    ///
+    /// This test case is really only interesting on arm64
+    ///
+    /// Arm64:
+    /// caller has 8 register arguments
+    /// callee has 8 register arguments
+    ///
+    /// x64 *nux:
+    /// caller has 8 register arguments
+    /// callee has 4 register arguments and 32 bytes of stack space
+    ///
+    /// Arm64 can fastTailCall while x64 linux cannot
+    ///
+    /// Return 100 is a pass.
+    /// Return 109 is a failure.
+    ///
+    /// </remarks>
+    public static int CalleeWithHFA(double one,
+                                    double two,
+                                    double three,
+                                    double four,
+                                    HFASize32 s1)
+    {
+        int count = 0;
+        for (double i = 0; i < one; ++i)
+        {
+            if (i % 2 == 0)
+            {
+                ++count;
+            }
+        }
+
+        if (count == 1)
+        {
+            return 100;
+        }
+
+        else
+        {
+            return 109;
+        }
+    }
+
+    /// <summary>
+    /// Possible to fastTailCall only on arm64
+    /// </summary>
+    /// <remarks>
+    ///
+    /// This test case is really only interesting on arm64
+    ///
+    /// Arm64:
+    /// caller has 8 register arguments
+    /// callee has 8 register arguments
+    ///
+    /// x64 *nux:
+    /// caller has 8 register arguments
+    /// callee has 4 register arguments and 32 bytes of stack space
+    ///
+    /// Arm64 can fastTailCall while x64 linux cannot
+    ///
+    /// Return 100 is a pass.
+    /// Return 109 is a failure.
+    ///
+    /// </remarks>
+    public static int CallerHFACaseCalleeOnly(double one,
+                                              double two,
+                                              double three,
+                                              double four,
+                                              double five,
+                                              double six,
+                                              double seven,
+                                              double eight)
+    {
+        if (one % 2 == 0)
+        {
+            double a = one * 100;
+            double b = one + 1100;
+            return CalleeWithHFA(one, 
+                                 a,
+                                 b,
+                                 four,
+                                 new HFASize32(a, b, five, six));
+        }
+        else
+        {
+            double b = one + 1599;
+            double a = one + 16;
+            return CalleeWithHFA(one, 
+                                 b,
+                                 a,
+                                 four,
+                                 new HFASize32(a, b, five, six));
         }
     }
 
