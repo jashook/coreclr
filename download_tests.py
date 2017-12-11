@@ -2,7 +2,7 @@
 ################################################################################
 ################################################################################
 #
-# Module: ci_job_diff.py
+# Module: download_tests.py
 #
 # Notes:
 #
@@ -10,12 +10,12 @@
 # for this script, either for use in netci or dev use. 
 # 
 # In the lab, the script requires the ability to automatically determine if 
-# there has been a change in the <CoreclrRootDir>/test/ directory.
+# there has been a change in the <CoreCLRRootDir>/test/ directory.
 #
 # For dev purposes the script is assumed to be invoked only when the tests are
 # needed. Note that the script will overwrite and place the tests in the default
-# location under bin/<OS>.<Arch>.<Configruation> even if that requires deleting
-# the existing folder to place it there. To avoid destructive behavoir pass
+# location under bin/<OS>.<Arch>.<Configuration> even if that requires deleting
+# the existing folder to place it there. To avoid destructive behavior pass
 # the -test_location parameter.
 #
 ################################################################################
@@ -80,12 +80,12 @@ description = """Script to download and setup the tests on a machine.
 There are two main uses for this script, either for use in netci or dev use.
  
 In the lab, the script requires the ability to automatically determine if 
-there has been a change in the <CoreclrRootDir>/test/ directory.
+there has been a change in the <CoreCLRRootDir>/test/ directory.
 
 For dev purposes the script is assumed to be invoked only when the tests are
 needed. Note that the script will overwrite and place the tests in the default
-location under bin/<OS>.<Arch>.<Configruation> even if that requires deleting
-the existing folder to place it there. To avoid destructive behavoir pass
+location under bin/<OS>.<Arch>.<Configuration> even if that requires deleting
+the existing folder to place it there. To avoid destructive behavior pass
 the -test_location parameter.
 """
 
@@ -107,11 +107,11 @@ parser.add_argument("--download_product", dest="download_product", action="store
 ################################################################################
 
 def __check_for_modifications__():
-    """ Check to see if <CoreclrRootDir>/tests/** has been modified
+    """ Check to see if <CoreCLRRootDir>/tests/** has been modified
 
     Returns:
 
-        modified (Bool): True if <CoreclrRootDir>/tests/** has been modified
+        modified (Bool): True if <CoreCLRRootDir>/tests/** has been modified
 
     """
     command = "git rev-parse --abbrev-ref HEAD".split(" ")
