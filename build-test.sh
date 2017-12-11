@@ -3,7 +3,32 @@
 initHostDistroRid()
 {
     __HostDistroRid=""
-    __PortableBuild=1
+
+    # Some OS groups should default to use the portable packages
+    if [ "$__BuildOS" == "OSX" ]; then
+        __PortableBuild=1
+    fi
+
+    if [ "$__HostOS" == "Linux" ]; then
+        if [ -e /etc/redhat-release ]; then
+            local redhatRelease=$(</etc/redhat-release)
+            if [[ $redhatRelease == "CentOS release 6."* || $redhatRelease == "Red Hat Enterprise Linux Server release 6."* ]]; then
+                __HostDistroRid="rhel.6-$__HostArch"
+            else
+                __PortableBuild=1
+            fi
+        elif [ -e /etc/os-release ]; then
+            source /etc/os-release
+            if [[ $ID == "alpine" ]]; then
+                # remove the last version digit
+                VERSION_ID=${VERSION_ID%.*}
+            else
+                __PortableBuild=1
+            fi
+
+            __HostDistroRid="$ID.$VERSION_ID-$__HostArch"
+        fi        
+    fi
 
     # Portable builds target the base RID
     if [ "$__PortableBuild" == 1 ]; then
@@ -12,11 +37,6 @@ initHostDistroRid()
         elif [ "$__BuildOS" == "Linux" ]; then
             export __HostDistroRid="linux-$__BuildArch"
         fi
-    fi
-
-    if [ "$__HostOS" == "FreeBSD" ]; then
-        __freebsd_version=`sysctl -n kern.osrelease | cut -f1 -d'.'`
-        __HostDistroRid="freebsd.$__freebsd_version-$__HostArch"
     fi
 
     if [ "$__HostDistroRid" == "" ]; then
@@ -47,10 +67,6 @@ initTargetDistroRid()
         export __DistroRid="$__HostDistroRid"
     fi
 
-    if [ "$__BuildOS" == "OSX" ]; then
-        __PortableBuild=1
-    fi
-
     # Portable builds target the base RID
     if [ "$__PortableBuild" == 1 ]; then
         if [ "$__BuildOS" == "Linux" ]; then
@@ -59,9 +75,6 @@ initTargetDistroRid()
         elif [ "$__BuildOS" == "OSX" ]; then
             export __DistroRid="osx-$__BuildArch"
             export __RuntimeId="osx-$__BuildArch"
-        elif [ "$__BuildOS" == "FreeBSD" ]; then
-            export __DistroRid="freebsd-$__BuildArch"
-            export __RuntimeId="freebsd-$__BuildArch"
         fi
     fi
 
@@ -138,7 +151,7 @@ generate_layout()
     # ===
     # =========================================================================================
 
-    build_Tests_internal "Restore_FrameWork_Packages" "${__ProjectDir}/tests/build.proj" " -BatchRestorePackages" "Restore product binaries (build tests)"
+    build_Tests_internal "Restore_Packages" "${__ProjectDir}/tests/build.proj" " -BatchRestorePackages" "Restore product binaries (build tests)"
 
     if [ -n "$__UpdateInvalidPackagesArg" ]; then
         __up=-updateinvalidpackageversion
@@ -146,11 +159,11 @@ generate_layout()
 
     echo "${__MsgPrefix}Creating test overlay..."
 
-    if [ -z "$XuintTestBinBase" ]; then
-      XuintTestBinBase=$__TestWorkingDir
+    if [ -z "$xUnitTestBinBase" ]; then
+      xUnitTestBinBase=$__TestWorkingDir
     fi
 
-    export CORE_ROOT=$XuintTestBinBase/Tests/Core_Root
+    export CORE_ROOT=$xUnitTestBinBase/Tests/Core_Root
 
     if [ -d "${CORE_ROOT}" ]; then
       rm -rf $CORE_ROOT
@@ -159,11 +172,6 @@ generate_layout()
     mkdir -p $CORE_ROOT
 
     build_Tests_internal "Tests_Overlay_Managed" "${__ProjectDir}/tests/runtest.proj" "-testOverlay" "Creating test overlay"
-
-    if [ $__ZipTests -ne 0 ]; then
-        echo "${__MsgPrefix}ZIP tests packages..."
-        build_Tests_internal "Helix_Prep" "$__ProjectDir/tests/helixprep.proj" " " "Prep test binaries for Helix publishing"
-    fi
 
     chmod +x $__BinDir/corerun
     chmod +x $__BinDir/crossgen
@@ -221,8 +229,9 @@ build_Tests()
     # ===
     # =========================================================================================
 
+    build_Tests_internal "Restore_Product" "${__ProjectDir}/tests/build.proj" " -BatchRestorePackages" "Restore product binaries (build tests)"
+
     if [ -n "$__BuildAgainstPackagesArg" ]; then
-        build_Tests_internal "Restore_Product" "${__ProjectDir}/tests/build.proj" " -BatchRestorePackages" "Restore product binaries (build tests)"
         build_Tests_internal "Tests_GenerateRuntimeLayout" "${__ProjectDir}/tests/runtest.proj" "-BinPlaceRef -BinPlaceProduct -CopyCrossgenToProduct" "Restore product binaries (run tests)"
     fi
 
@@ -274,34 +283,11 @@ build_Tests()
 
     echo "${__MsgPrefix}Creating test overlay..."
 
-    if [ -z "$XuintTestBinBase" ]; then
-      XuintTestBinBase=$__TestWorkingDir
-    fi
-
-    export CORE_ROOT=$XuintTestBinBase/Tests/Core_Root
-
-    if [ ! -f "${CORE_ROOT}" ]; then
-      mkdir -p $CORE_ROOT
-    else
-      rm -rf $CORE_ROOT/*
-    fi
-
-    build_Tests_internal "Tests_Overlay_Managed" "${__ProjectDir}/tests/runtest.proj" "-testOverlay" "Creating test overlay"
+    generate_layout
 
     if [ $__ZipTests -ne 0 ]; then
         echo "${__MsgPrefix}ZIP tests packages..."
         build_Tests_internal "Helix_Prep" "$__ProjectDir/tests/helixprep.proj" " " "Prep test binaries for Helix publishing"
-    fi
-
-    # Make sure to copy over the pulled down packages
-    cp -r $__BinDir/* $CORE_ROOT/ > /dev/null
-
-    # Work hardcoded path around
-    if [ ! -f "${__BuildToolsDir}/Microsoft.CSharp.Core.Targets" ]; then
-        ln -s "${__BuildToolsDir}/Microsoft.CSharp.Core.targets" "${__BuildToolsDir}/Microsoft.CSharp.Core.Targets"
-    fi
-    if [ ! -f "${__BuildToolsDir}/Microsoft.CSharp.targets" ]; then
-        ln -s "${__BuildToolsDir}/Microsoft.CSharp.Targets" "${__BuildToolsDir}/Microsoft.CSharp.targets"
     fi
 }
 
@@ -482,7 +468,7 @@ __NativeTestIntermediatesDir=
 __RunTests=0
 __RebuildTests=0
 __BuildTestWrappers=0
-__GenarateLayoutOnly=
+__GenerateLayoutOnly=
 CORE_ROOT=
 
 while :; do
@@ -596,7 +582,7 @@ while :; do
             ;;
 
         generatelayoutonly)
-            __GenarateLayoutOnly=1
+            __GenerateLayoutOnly=1
             ;;
 
         buildagainstpackages)
@@ -721,7 +707,7 @@ __sharedFxDir=$__BuildToolsDir/dotnetcli/shared/Microsoft.NETCore.App/$__CoreClr
 
 echo "Building Tests..."
 
-if [ -z "__GenerateLayoutOnly" ]; then
+if [ -z "$__GenerateLayoutOnly" ]; then
     build_Tests
 else
     generate_layout
