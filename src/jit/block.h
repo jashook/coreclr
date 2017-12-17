@@ -28,6 +28,7 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 #include "jitstd.h"
 #include "bitvec.h"
 #include "jithashtable.h"
+#include "vector.hpp"
 
 /*****************************************************************************/
 typedef BitVec EXPSET_TP;
@@ -74,12 +75,39 @@ struct BasicBlock;
 class Compiler;
 class typeInfo;
 struct BasicBlockList;
-struct flowList;
 struct EHblkDsc;
 
 #if FEATURE_STACK_FP_X87
 struct FlatFPStateX87;
 #endif
+
+struct flowList
+{
+    BasicBlock* flBlock; // The BasicBlock of interest.
+
+    BasicBlock::weight_t flEdgeWeightMin;
+    BasicBlock::weight_t flEdgeWeightMax;
+
+    unsigned flDupCount; // The count of duplicate "edges" (use only for switch stmts)
+
+    // These two methods are used to set new values for flEdgeWeightMin and flEdgeWeightMax
+    // they are used only during the computation of the edge weights
+    // They return false if the newWeight is not between the current [min..max]
+    // when slop is non-zero we allow for the case where our weights might be off by 'slop'
+    //
+    bool setEdgeWeightMinChecked(BasicBlock::weight_t newWeight, BasicBlock::weight_t slop, bool* wbUsedSlop);
+    bool setEdgeWeightMaxChecked(BasicBlock::weight_t newWeight, BasicBlock::weight_t slop, bool* wbUsedSlop);
+
+    flowList() : flBlock(nullptr), flEdgeWeightMin(0), flEdgeWeightMax(0), flDupCount(0)
+    {
+    }
+
+    flowList(BasicBlock* blk)
+        : flBlock(blk), flEdgeWeightMin(0), flEdgeWeightMax(0), flDupCount(0)
+    {
+    }
+};
+
 
 /*****************************************************************************
  *
@@ -892,7 +920,7 @@ struct BasicBlock : private LIR::Range
     // the "full" variant.
     union {
         BasicBlockList* bbCheapPreds; // ptr to list of cheap predecessors (used before normal preds are computed)
-        flowList*       bbPreds;      // ptr to list of predecessors
+        vector<flowList>     bbPreds;      // ptr to list of predecessors
     };
 
     BlockSet    bbReach; // Set of all blocks that can reach this one
@@ -1266,34 +1294,6 @@ struct BasicBlockList
     }
 
     BasicBlockList(BasicBlock* blk, BasicBlockList* rest) : next(rest), block(blk)
-    {
-    }
-};
-
-struct flowList
-{
-    flowList*   flNext;  // The next BasicBlock in the list, nullptr for end of list.
-    BasicBlock* flBlock; // The BasicBlock of interest.
-
-    BasicBlock::weight_t flEdgeWeightMin;
-    BasicBlock::weight_t flEdgeWeightMax;
-
-    unsigned flDupCount; // The count of duplicate "edges" (use only for switch stmts)
-
-    // These two methods are used to set new values for flEdgeWeightMin and flEdgeWeightMax
-    // they are used only during the computation of the edge weights
-    // They return false if the newWeight is not between the current [min..max]
-    // when slop is non-zero we allow for the case where our weights might be off by 'slop'
-    //
-    bool setEdgeWeightMinChecked(BasicBlock::weight_t newWeight, BasicBlock::weight_t slop, bool* wbUsedSlop);
-    bool setEdgeWeightMaxChecked(BasicBlock::weight_t newWeight, BasicBlock::weight_t slop, bool* wbUsedSlop);
-
-    flowList() : flNext(nullptr), flBlock(nullptr), flEdgeWeightMin(0), flEdgeWeightMax(0), flDupCount(0)
-    {
-    }
-
-    flowList(BasicBlock* blk, flowList* rest)
-        : flNext(rest), flBlock(blk), flEdgeWeightMin(0), flEdgeWeightMax(0), flDupCount(0)
     {
     }
 };

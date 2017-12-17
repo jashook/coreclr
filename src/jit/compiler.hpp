@@ -3081,7 +3081,6 @@ inline void Compiler::fgConvertBBToThrowBB(BasicBlock* block)
 
         leaveBlk->bbFlags &= ~BBF_DONT_REMOVE;
         leaveBlk->bbRefs  = 0;
-        leaveBlk->bbPreds = nullptr;
 
 #if FEATURE_EH_FUNCLETS && defined(_TARGET_ARM_)
         // This function (fgConvertBBToThrowBB) can be called before the predecessor lists are created (e.g., in

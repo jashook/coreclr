@@ -151,26 +151,25 @@ BasicBlock* EHSuccessorIter::operator*()
     return m_curTry->ExFlowBlock();
 }
 
-flowList* Compiler::BlockPredsWithEH(BasicBlock* blk)
+random_access_iteraror<flowList> Compiler::BlockPredsWithEH(BasicBlock* blk)
 {
     BlockToFlowListMap* ehPreds = GetBlockToEHPreds();
-    flowList*           res;
+    random_access_iteraror<flowList>           res;
     if (ehPreds->Lookup(blk, &res))
     {
         return res;
     }
 
-    res = blk->bbPreds;
+    res = blk->bbPreds.begin();
     unsigned tryIndex;
     if (bbIsExFlowBlock(blk, &tryIndex))
     {
         // Find the first block of the try.
         EHblkDsc*   ehblk    = ehGetDsc(tryIndex);
         BasicBlock* tryStart = ehblk->ebdTryBeg;
-        for (flowList* tryStartPreds = tryStart->bbPreds; tryStartPreds != nullptr;
-             tryStartPreds           = tryStartPreds->flNext)
+        for (auto& tryStartPreds : blk->bbPreds)
         {
-            res = new (this, CMK_FlowList) flowList(tryStartPreds->flBlock, res);
+            res = new (this, CMK_FlowList) flowList(tryStartPreds->flBlock);
 
 #if MEASURE_BLOCK_SIZE
             genFlowNodeCnt += 1;
@@ -192,7 +191,7 @@ flowList* Compiler::BlockPredsWithEH(BasicBlock* blk)
         {
             if (bbInExnFlowRegions(tryIndex, bb) && (prevBB == nullptr || !prevBB->isBBCallAlwaysPair()))
             {
-                res = new (this, CMK_FlowList) flowList(bb, res);
+                res = new (this, CMK_FlowList) flowList(bb);
 
 #if MEASURE_BLOCK_SIZE
                 genFlowNodeCnt += 1;
@@ -397,28 +396,28 @@ void BasicBlock::dspFlags()
 unsigned BasicBlock::dspPreds()
 {
     unsigned count = 0;
-    for (flowList* pred = bbPreds; pred != nullptr; pred = pred->flNext)
+    for (auto& pred : bbPreds)
     {
         if (count != 0)
         {
             printf(",");
             count += 1;
         }
-        printf("BB%02u", pred->flBlock->bbNum);
+        printf("BB%02u", pred.flBlock->bbNum);
         count += 4;
 
         // Account for %02u only handling 2 digits, but we can display more than that.
-        unsigned digits = CountDigits(pred->flBlock->bbNum);
+        unsigned digits = CountDigits(pred.flBlock->bbNum);
         if (digits > 2)
         {
             count += digits - 2;
         }
 
         // Does this predecessor have an interesting dup count? If so, display it.
-        if (pred->flDupCount > 1)
+        if (pred.flDupCount > 1)
         {
-            printf("(%u)", pred->flDupCount);
-            count += 2 + CountDigits(pred->flDupCount);
+            printf("(%u)", pred.flDupCount);
+            count += 2 + CountDigits(pred.flDupCount);
         }
     }
     return count;
@@ -760,13 +759,13 @@ GenTree* BasicBlock::lastNode()
 
 BasicBlock* BasicBlock::GetUniquePred(Compiler* compiler)
 {
-    if ((bbPreds == nullptr) || (bbPreds->flNext != nullptr) || (this == compiler->fgFirstBB))
+    if ((bbPreds.size() <= 2) || (this == compiler->fgFirstBB))
     {
         return nullptr;
     }
     else
     {
-        return bbPreds->flBlock;
+        return bbPreds[0].flBlock;
     }
 }
 

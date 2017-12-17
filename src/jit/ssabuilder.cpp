@@ -1899,7 +1899,7 @@ void SsaBuilder::SetupBBRoot()
     // a loop (which would necessarily be an infinite loop) -- i.e., it has a predecessor.
 
     // If neither condition holds, no reason to make a new block.
-    if (!m_pCompiler->fgFirstBB->hasTryIndex() && m_pCompiler->fgFirstBB->bbPreds == nullptr)
+    if (!m_pCompiler->fgFirstBB->hasTryIndex() && m_pCompiler->fgFirstBB->bbPreds.size() == 0)
     {
         return;
     }

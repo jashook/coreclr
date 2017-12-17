@@ -890,7 +890,7 @@ void Compiler::fgRemoveReturnBlock(BasicBlock* block)
 // Assumptions:
 //    -- This only works on the full predecessor lists, not the cheap preds lists.
 
-flowList* Compiler::fgGetPredForBlock(BasicBlock* block, BasicBlock* blockPred)
+random_access_iteraror<flowList> Compiler::fgGetPredForBlock(BasicBlock* block, BasicBlock* blockPred)
 {
     assert(block);
     assert(blockPred);
@@ -898,15 +898,15 @@ flowList* Compiler::fgGetPredForBlock(BasicBlock* block, BasicBlock* blockPred)
 
     flowList* pred;
 
-    for (pred = block->bbPreds; pred != nullptr; pred = pred->flNext)
+    for (random_access_iteraror<flowList> iter = block->bbPreds.begin(); iter != block->bbPreds.end(); ++iter)
     {
-        if (blockPred == pred->flBlock)
+        if (blockPred == iter->flBlock)
         {
-            return pred;
+            return iter;
         }
     }
 
-    return nullptr;
+    return random_access_iteraror(nullptr);
 }
 
 //------------------------------------------------------------------------
