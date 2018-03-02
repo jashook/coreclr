@@ -92,7 +92,15 @@ if (WIN32)
   add_compile_options(/GS) # Buffer Security Check
   add_compile_options(/Zm200) # Specify Precompiled Header Memory Allocation Limit of 150MB
   add_compile_options(/wd4960 /wd4961 /wd4603 /wd4627 /wd4838 /wd4456 /wd4457 /wd4458 /wd4459 /wd4091 /we4640)
-  add_compile_options(/Zi) # enable debugging information
+  
+  # HACK Docker container requires /z7 instead of /zi to avoid
+  # using mspdbsrv
+  if (CLR_CMAKE_DOCKERBUILD)
+    add_compile_options(/Z7) # enable debugging information
+  else() # !DockerBuild
+    add_compile_options(/Zi) # enable debugging information
+  endif()
+  
   add_compile_options(/ZH:SHA_256) # use SHA256 for generating hashes of compiler processed source files.
   add_compile_options(/source-charset:utf-8) # Force MSVC to compile source as UTF-8.
 
