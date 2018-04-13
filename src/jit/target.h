@@ -6,7 +6,9 @@
 #ifndef _TARGET_H_
 #define _TARGET_H_
 
-#if defined(FEATURE_CORECLR) && defined(_TARGET_UNIX_)
+#if defined(FEATURE_CORECLR) && defined(_TARGET_AMD64_) && defined(_TARGET_UNIX_)
+#define FEATURE_VARARG 1
+#elif defined(FEATURE_CORECLR) && defined(_TARGET_UNIX_) && !defined(_TARGET_AMD64_)
 #define FEATURE_VARARG 0
 #else // !(defined(FEATURE_CORECLR) && defined(_TARGET_UNIX_))
 #define FEATURE_VARARG 1

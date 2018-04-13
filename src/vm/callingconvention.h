@@ -417,9 +417,8 @@ public:
 
 #ifdef _TARGET_AMD64_
 #ifdef FEATURE_UNIX_AMD64_STRUCT_PASSING
-        PORTABILITY_ASSERT("ArgIteratorTemplate::IsVarArgPassedByRef");                
         return FALSE;
-#else // FEATURE_UNIX_AMD64_STRUCT_PASSING
+#else // !FEATURE_UNIX_AMD64_STRUCT_PASSING
         return IsArgPassedByRef(size);
 #endif // FEATURE_UNIX_AMD64_STRUCT_PASSING
 
