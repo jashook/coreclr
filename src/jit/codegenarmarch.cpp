@@ -325,11 +325,11 @@ void CodeGen::genCodeForTreeNode(GenTree* treeNode)
             genPutArgReg(treeNode->AsOp());
             break;
 
-#ifdef _TARGET_ARM_
+#if FEATURE_ARG_SPLIT
         case GT_PUTARG_SPLIT:
             genPutArgSplit(treeNode->AsPutArgSplit());
             break;
-#endif // _TARGET_ARM_
+#endif // FEATURE_ARG_SPLIT
 
         case GT_CALL:
             genCallInstruction(treeNode->AsCall());
@@ -996,7 +996,7 @@ void CodeGen::genPutArgReg(GenTreeOp* tree)
     genProduceReg(tree);
 }
 
-#ifdef _TARGET_ARM_
+#if FEATURE_ARG_SPLIT
 //---------------------------------------------------------------------
 // genPutArgSplit - generate code for a GT_PUTARG_SPLIT node
 //
@@ -1043,6 +1043,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* treeNode)
             {
                 var_types type   = treeNode->GetRegType(regIndex);
                 regNumber argReg = treeNode->GetRegNumByIdx(regIndex);
+#ifdef _TARGET_ARM_
                 if (type == TYP_LONG)
                 {
                     // We should only see long fields for DOUBLEs passed in 2 integer registers, via bitcast.
@@ -1060,6 +1061,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* treeNode)
                     assert(argReg == treeNode->GetRegNumByIdx(regIndex));
                     fieldReg = nextArgNode->AsMultiRegOp()->GetRegNumByIdx(1);
                 }
+#endif // _TARGET_ARM_
 
                 // If child node is not already in the register we need, move it
                 if (argReg != fieldReg)
@@ -1210,7 +1212,7 @@ void CodeGen::genPutArgSplit(GenTreePutArgSplit* treeNode)
     }
     genProduceReg(treeNode);
 }
-#endif // _TARGET_ARM_
+#endif // FEATURE_ARG_SPLIT
 
 //----------------------------------------------------------------------------------
 // genMultiRegCallStoreToLocal: store multi-reg return value of a call node to a local
@@ -2238,7 +2240,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
 #endif // _TARGET_ARM_
             }
         }
-#ifdef _TARGET_ARM_
+#if FEATURE_ARG_SPLIT
         else if (curArgTabEntry->isSplit)
         {
             assert(curArgTabEntry->numRegs >= 1);
@@ -2253,7 +2255,7 @@ void CodeGen::genCallInstruction(GenTreeCall* call)
                 }
             }
         }
-#endif
+#endif // FEATURE_ARG_SPLIT
         else
         {
             regNumber argReg = curArgTabEntry->regNum;

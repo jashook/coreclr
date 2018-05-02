@@ -272,7 +272,7 @@
 #define UNIX_AMD64_ABI_ONLY(x)
 #endif // defined(UNIX_AMD64_ABI)
 
-#if defined(UNIX_AMD64_ABI) || !defined(_TARGET_64BIT_)
+#if defined(UNIX_AMD64_ABI) || (!defined(_TARGET_64BIT_)) || (defined(_TARGET_ARM64_) && !defined(_TARGET_UNIX_))
 #define FEATURE_PUT_STRUCT_ARG_STK 1
 #define PUT_STRUCT_ARG_STK_ONLY_ARG(x) , x
 #define PUT_STRUCT_ARG_STK_ONLY(x) x
@@ -298,6 +298,15 @@
 #define MULTIREG_HAS_SECOND_GC_RET_ONLY_ARG(x)
 #define MULTIREG_HAS_SECOND_GC_RET_ONLY(x)
 #endif // defined(UNIX_AMD64_ABI)
+
+// Arm64 Windows supports FEATURE_ARG_SPLIT, note this is different from
+// the official Arm64 ABI.
+// Case: splitting 16 byte struct between x7 and stack
+#if (defined(_TARGET_ARM_) || (defined(_TARGET_ARM64_) && !defined(_TARGET_UNIX_)))
+#define FEATURE_ARG_SPLIT 1
+#else
+#define FEATURE_ARG_SPLIT 0
+#endif // (defined(_TARGET_ARM_) || (defined(_TARGET_ARM64_) && !defined(_TARGET_UNIX_)))
 
 // To get rid of warning 4701 : local variable may be used without being initialized
 #define DUMMY_INIT(x) (x)

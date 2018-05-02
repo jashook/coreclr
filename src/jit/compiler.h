@@ -1178,7 +1178,7 @@ struct fgArgTabEntry
     regNumber otherRegNum; // The (second) register to use when passing this argument.
 
     SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
-#elif !defined(_TARGET_64BIT_)
+#else // !defined(UNIX_AMD64_ABI)
     __declspec(property(get = getIsStruct)) bool isStruct;
     bool getIsStruct()
     {
