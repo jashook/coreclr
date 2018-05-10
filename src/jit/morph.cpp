@@ -2093,12 +2093,14 @@ void fgArgInfo::Dump(Compiler* compiler)
 //                    of the evaluation of arguments.
 //
 // Arguments:
-//    tmpVarNum  - the var num which we clone into the newly created temp var.
+//    bool isVarArg - is a VarArg method. Will affect HFA decision for arm64 windows
+//    tmpVarNum     - the var num which we clone into the newly created temp var.
 //
 // Return Value:
 //    the newly created temp var tree.
 
-GenTree* Compiler::fgMakeTmpArgNode(unsigned tmpVarNum UNIX_AMD64_ABI_ONLY_ARG(const bool passedInRegisters))
+GenTree* Compiler::fgMakeTmpArgNode(bool     isVarArg,
+                                    unsigned tmpVarNum UNIX_AMD64_ABI_ONLY_ARG(const bool passedInRegisters))
 {
     LclVarDsc* varDsc = &lvaTable[tmpVarNum];
     assert(varDsc->lvIsTemp);
@@ -2124,7 +2126,7 @@ GenTree* Compiler::fgMakeTmpArgNode(unsigned tmpVarNum UNIX_AMD64_ABI_ONLY_ARG(c
 
         bool                 passedInRegisters = false;
         CORINFO_CLASS_HANDLE clsHnd            = varDsc->lvVerTypeInfo.GetClassHandle();
-        var_types            structBaseType    = getPrimitiveTypeForStruct(lvaLclExactSize(tmpVarNum), clsHnd);
+        var_types            structBaseType = getPrimitiveTypeForStruct(lvaLclExactSize(tmpVarNum), clsHnd, isVarArg);
 
         if (structBaseType != TYP_UNKNOWN)
         {
@@ -2154,7 +2156,7 @@ GenTree* Compiler::fgMakeTmpArgNode(unsigned tmpVarNum UNIX_AMD64_ABI_ONLY_ARG(c
 #if FEATURE_MULTIREG_ARGS
 #ifdef _TARGET_ARM64_
             assert(varTypeIsStruct(type));
-            if (lvaIsMultiregStruct(varDsc))
+            if (lvaIsMultiregStruct(varDsc, isVarArg))
             {
                 // ToDo-ARM64: Consider using:  arg->ChangeOper(GT_LCL_FLD);
                 // as that is how UNIX_AMD64_ABI works.
@@ -2207,7 +2209,15 @@ GenTree* Compiler::fgMakeTmpArgNode(unsigned tmpVarNum UNIX_AMD64_ABI_ONLY_ARG(c
     return arg;
 }
 
-void fgArgInfo::EvalArgsToTemps()
+//------------------------------------------------------------------------------
+// EvalArgsToTemps : Create temp assignments and populate the LateArgs list.
+//
+// Arguments:
+//    bool allowHfa - Do not clasify HFA structs as HFA, this is only true for
+//                  - Arm64 Windows VarArg methods. Note that all arguments are
+//                  - affected, both fixed and variable arguments.
+
+void fgArgInfo::EvalArgsToTemps(bool allowHfa)
 {
     assert(argsSorted == true);
 
@@ -2242,8 +2252,9 @@ void fgArgInfo::EvalArgsToTemps()
             {
                 // Create a copy of the temp to go into the late argument list
                 tmpVarNum = curArgTabEntry->tmpNum;
-                defArg    = compiler->fgMakeTmpArgNode(
-                    tmpVarNum UNIX_AMD64_ABI_ONLY_ARG(argTable[curInx]->structDesc.passedInRegisters));
+                // isVararg is true when allowHfa is false.
+                defArg    = compiler->fgMakeTmpArgNode(/*isVararg=*/!allowHfa, tmpVarNum UNIX_AMD64_ABI_ONLY_ARG(
+                                                                    argTable[curInx]->structDesc.passedInRegisters));
 
                 // mark the original node as a late argument
                 argx->gtFlags |= GTF_LATE_ARG;
@@ -2332,7 +2343,7 @@ void fgArgInfo::EvalArgsToTemps()
                         CORINFO_CLASS_HANDLE clsHnd     = compiler->lvaGetStruct(tmpVarNum);
                         unsigned             structSize = varDsc->lvExactSize;
 
-                        scalarType = compiler->getPrimitiveTypeForStruct(structSize, clsHnd);
+                        scalarType = compiler->getPrimitiveTypeForStruct(structSize, clsHnd, /*isHfa=*/!allowHfa);
 #endif // _TARGET_ARMARCH_
                     }
 
@@ -3291,7 +3302,12 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
         // Setup any HFA information about 'argx'
         var_types hfaType  = GetHfaType(argx);
         bool      isHfaArg = varTypeIsFloating(hfaType);
-        unsigned  hfaSlots = 0;
+
+#if !defined(_TARGET_UNIX_) && defined(_TARGET_ARM64_)
+        isHfaArg = callIsVararg ? false : isHfaArg;
+#endif // !defined(_TARGET_UNIX_) && defined(_TARGET_ARM64_)
+
+        unsigned hfaSlots = 0;
 
         if (isHfaArg)
         {
@@ -3605,7 +3621,8 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                     structSize = originalSize;
 
                     structPassingKind howToPassStruct;
-                    structBaseType = getArgTypeForStruct(objClass, &howToPassStruct, originalSize);
+
+                    structBaseType = getArgTypeForStruct(objClass, &howToPassStruct, callIsVararg, originalSize);
 
 #ifdef _TARGET_ARM64_
                     if ((howToPassStruct == SPK_PrimitiveType) && // Passed in a single register
@@ -4211,8 +4228,9 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 #endif // defined(UNIX_AMD64_ABI)
                                                          );
 
-                newArgEntry->SetIsHfaRegArg(passUsingFloatRegs &&
-                                            isHfaArg); // Note on Arm32 a HFA is passed in int regs for varargs
+                newArgEntry->SetIsHfaRegArg(passUsingFloatRegs && isHfaArg); // Note on Arm(32|64) a HFA is passed in
+                                                                             // the general purpose registers for
+                                                                             // varargs
                 newArgEntry->SetIsBackFilled(isBackFilled);
                 newArgEntry->isNonStandard = isNonStandard;
             }
@@ -4507,7 +4525,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
 
         call->fgArgInfo->SortArgs();
 
-        call->fgArgInfo->EvalArgsToTemps();
+        call->fgArgInfo->EvalArgsToTemps(!callIsVararg);
 
         // We may have updated the arguments
         if (call->gtCallArgs)
@@ -4527,7 +4545,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
     // method instead of fgMorphSystemVStructArgs
     if (hasMultiregStructArgs)
     {
-        fgMorphMultiregStructArgs(call);
+        fgMorphMultiregStructArgs(call, callIsVararg);
     }
 
 #endif // UNIX_AMD64_ABI
@@ -4732,14 +4750,16 @@ void Compiler::fgMorphSystemVStructArgs(GenTreeCall* call, bool hasStructArgumen
 //                             call fgMorphMultiregStructArg on each of them.
 //
 // Arguments:
-//    call:    a GenTreeCall node that has one or more TYP_STRUCT arguments
+//    call    :    a GenTreeCall node that has one or more TYP_STRUCT arguments
+//    isVarArg:    used for arm64 Windows, the struct classification will change
+//                 based on whether we are morphing for a varargs method.
 //
 // Notes:
 //    We only call fgMorphMultiregStructArg for struct arguments that are not passed as simple types.
 //    It will ensure that the struct arguments are in the correct form.
 //    If this method fails to find any TYP_STRUCT arguments it will assert.
 //
-void Compiler::fgMorphMultiregStructArgs(GenTreeCall* call)
+void Compiler::fgMorphMultiregStructArgs(GenTreeCall* call, bool isVarArg)
 {
     bool       foundStructArg = false;
     unsigned   initialFlags   = call->gtFlags;
@@ -4798,7 +4818,7 @@ void Compiler::fgMorphMultiregStructArgs(GenTreeCall* call)
         {
             foundStructArg = true;
 
-            arg = fgMorphMultiregStructArg(arg, fgEntryPtr);
+            arg = fgMorphMultiregStructArg(arg, fgEntryPtr, isVarArg);
 
             // Did we replace 'argx' with a new tree?
             if (arg != argx)
@@ -4832,6 +4852,8 @@ void Compiler::fgMorphMultiregStructArgs(GenTreeCall* call)
 // Arguments:
 //     arg        - A GenTree node containing a TYP_STRUCT arg
 //     fgEntryPtr - the fgArgTabEntry information for the current 'arg'
+//     isVarArg:  - used for arm64 Windows, the struct classification will change
+//                  based on whether we are morphing for a varargs method.
 //
 // Notes:
 //    The arg must be a GT_OBJ or GT_LCL_VAR or GT_LCL_FLD of TYP_STRUCT.
@@ -4851,7 +4873,7 @@ void Compiler::fgMorphMultiregStructArgs(GenTreeCall* call)
 //    indirections.
 //    Currently the implementation handles ARM64/ARM and will NYI for other architectures.
 //
-GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntryPtr)
+GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntryPtr, bool isVarArg)
 {
     assert(varTypeIsStruct(arg->TypeGet()));
 
@@ -4952,7 +4974,11 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
     var_types type[MAX_ARG_REG_COUNT] = {}; // TYP_UNDEF = 0
 
     hfaType = GetHfaType(objClass); // set to float or double if it is an HFA, otherwise TYP_UNDEF
-    if (varTypeIsFloating(hfaType))
+    if (varTypeIsFloating(hfaType)
+#if !defined(_HOST_UNIX_) && defined(_TARGET_ARM64_)
+        && !isVarArg
+#endif // !defined(_HOST_UNIX_) && defined(_TARGET_ARM64_)
+        )
     {
         elemType  = hfaType;
         elemSize  = genTypeSize(elemType);
@@ -5058,7 +5084,11 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 #endif // DEBUG
 
         // This local variable must match the layout of the 'objClass' type exactly
-        if (varDsc->lvIsHfa())
+        if (varDsc->lvIsHfa()
+#if !defined(_HOST_UNIX_) && defined(_TARGET_ARM64_)
+            && !isVarArg
+#endif // !defined(_HOST_UNIX_) && defined(_TARGET_ARM64_)
+            )
         {
             // We have a HFA struct
             noway_assert(elemType == (varDsc->lvHfaTypeIsFloat() ? TYP_FLOAT : TYP_DOUBLE));
@@ -5103,7 +5133,11 @@ GenTree* Compiler::fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntry
 #ifdef _TARGET_ARM64_
         // Is this LclVar a promoted struct with exactly 2 fields?
         // TODO-ARM64-CQ: Support struct promoted HFA types here
-        if (varDsc->lvPromoted && (varDsc->lvFieldCnt == 2) && !varDsc->lvIsHfa())
+        if (varDsc->lvPromoted && (varDsc->lvFieldCnt == 2) && (!varDsc->lvIsHfa()
+#if !defined(_HOST_UNIX_) && defined(_TARGET_ARM64_)
+                                                                && !isVarArg
+#endif // !defined(_HOST_UNIX_) && defined(_TARGET_ARM64_)
+                                                                ))
         {
             // See if we have two promoted fields that start at offset 0 and 8?
             unsigned loVarNum = lvaGetFieldLocal(varDsc, 0);
@@ -5504,6 +5538,11 @@ void Compiler::fgMakeOutgoingStructArgCopy(
         // Here We don't need unsafe value cls check, since the addr of this temp is used only in copyblk.
         tmp = lvaGrabTemp(true DEBUGARG("by-value struct argument"));
         lvaSetStruct(tmp, copyBlkClass, false);
+        if (call->IsVarargs())
+        {
+            lvaSetStructUsedAsVarArg(tmp);
+        }
+
         fgOutgoingArgTemps->setBit(tmp);
     }
 
@@ -5549,7 +5588,7 @@ void Compiler::fgMakeOutgoingStructArgCopy(
 
     // Structs are always on the stack, and thus never need temps
     // so we have to put the copy and temp all into one expression
-    GenTree* arg = fgMakeTmpArgNode(tmp UNIX_AMD64_ABI_ONLY_ARG(structDescPtr->passedInRegisters));
+    GenTree* arg = fgMakeTmpArgNode(call->IsVarargs(), tmp UNIX_AMD64_ABI_ONLY_ARG(structDescPtr->passedInRegisters));
 
     // Change the expression to "(tmp=val),tmp"
     arg = gtNewOperNode(GT_COMMA, arg->TypeGet(), copyBlk, arg);
@@ -7507,9 +7546,10 @@ bool Compiler::fgCanFastTailCall(GenTreeCall* callee)
                 // fastTailCall. This is an implementation limitation
                 // where the callee only is checked for non enregisterable structs.
                 // It is tracked with https://github.com/dotnet/coreclr/issues/12644.
-                unsigned typeSize     = 0;
-                hasMultiByteStackArgs = hasMultiByteStackArgs ||
-                                        !VarTypeIsMultiByteAndCanEnreg(argx->TypeGet(), objClass, &typeSize, false);
+                unsigned typeSize = 0;
+                hasMultiByteStackArgs =
+                    hasMultiByteStackArgs ||
+                    !VarTypeIsMultiByteAndCanEnreg(argx->TypeGet(), objClass, &typeSize, false, false);
 
 #if defined(UNIX_AMD64_ABI)
                 SYSTEMV_AMD64_CORINFO_STRUCT_REG_PASSING_DESCRIPTOR structDesc;
@@ -17788,7 +17828,7 @@ void Compiler::fgMarkImplicitByRefArgs()
 #if defined(_TARGET_AMD64_)
             if (size > REGSIZE_BYTES || (size & (size - 1)) != 0)
 #elif defined(_TARGET_ARM64_)
-            if ((size > TARGET_POINTER_SIZE) && !lvaIsMultiregStruct(varDsc))
+            if ((size > TARGET_POINTER_SIZE) && !lvaIsMultiregStruct(varDsc, this->info.compIsVarArgs))
 #endif
             {
                 // Previously nobody was ever setting lvIsParam and lvIsTemp on the same local
@@ -17853,6 +17893,11 @@ void Compiler::fgRetypeImplicitByRefArgs()
                 // promoted struct before rewriting this parameter as a pointer.
                 unsigned newLclNum = lvaGrabTemp(false DEBUGARG("Promoted implicit byref"));
                 lvaSetStruct(newLclNum, lvaGetStruct(lclNum), true);
+                if (info.compIsVarArgs)
+                {
+                    lvaSetStructUsedAsVarArg(newLclNum);
+                }
+
                 // Update varDsc since lvaGrabTemp might have re-allocated the var dsc array.
                 varDsc = &lvaTable[lclNum];
 

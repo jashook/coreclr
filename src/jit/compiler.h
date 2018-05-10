@@ -1299,7 +1299,7 @@ public:
 
     void SortArgs();
 
-    void EvalArgsToTemps();
+    void EvalArgsToTemps(bool allowHfa);
 
     void RecordStkLevel(unsigned stkLvl);
     unsigned RetrieveStkLevel();
@@ -1545,7 +1545,6 @@ public:
     var_types GetHfaType(CORINFO_CLASS_HANDLE hClass);
     unsigned GetHfaCount(CORINFO_CLASS_HANDLE hClass);
 
-    bool IsMultiRegPassedType(CORINFO_CLASS_HANDLE hClass);
     bool IsMultiRegReturnedType(CORINFO_CLASS_HANDLE hClass);
 
     //-------------------------------------------------------------------------
@@ -2661,11 +2660,12 @@ public:
     }
 
     // Returns true if this local var is a multireg struct
-    bool lvaIsMultiregStruct(LclVarDsc* varDsc);
+    bool lvaIsMultiregStruct(LclVarDsc* varDsc, bool isVararg);
 
     // If the local is a TYP_STRUCT, get/set a class handle describing it
     CORINFO_CLASS_HANDLE lvaGetStruct(unsigned varNum);
     void lvaSetStruct(unsigned varNum, CORINFO_CLASS_HANDLE typeHnd, bool unsafeValueClsCheck, bool setTypeInfo = true);
+    void lvaSetStructUsedAsVarArg(unsigned varNum);
 
     // If the local is TYP_REF, set or update the associated class information.
     void lvaSetClass(unsigned varNum, CORINFO_CLASS_HANDLE clsHnd, bool isExact = false);
@@ -3137,10 +3137,8 @@ public:
 
     GenTree* impOptimizeCastClassOrIsInst(GenTree* op1, CORINFO_RESOLVED_TOKEN* pResolvedToken, bool isCastClass);
 
-    bool VarTypeIsMultiByteAndCanEnreg(var_types            type,
-                                       CORINFO_CLASS_HANDLE typeClass,
-                                       unsigned*            typeSize,
-                                       bool                 forReturn);
+    bool VarTypeIsMultiByteAndCanEnreg(
+        var_types type, CORINFO_CLASS_HANDLE typeClass, unsigned* typeSize, bool forReturn, bool isVarArg);
 
     bool IsIntrinsicImplementedByUserCall(CorInfoIntrinsics intrinsicId);
     bool IsTargetIntrinsic(CorInfoIntrinsics intrinsicId);
@@ -4077,13 +4075,20 @@ public:
     // A "primitive" type is one of the scalar types: byte, short, int, long, ref, float, double
     // If we can't or shouldn't use a "primitive" type then TYP_UNKNOWN is returned.
     //
-    var_types getPrimitiveTypeForStruct(unsigned structSize, CORINFO_CLASS_HANDLE clsHnd);
+    // isVarArg is passed for use on Windows Arm64 to change the decision returned regarding
+    // hfa types.
+    //
+    var_types getPrimitiveTypeForStruct(unsigned structSize, CORINFO_CLASS_HANDLE clsHnd, bool isVarArg);
 
     // Get the type that is used to pass values of the given struct type.
-    // If you have already retrieved the struct size then pass it as the optional third argument
+    // If you have already retrieved the struct size then pass it as the optional fourth argument
+    //
+    // isVarArg is passed for use on Windows Arm64 to change the decision returned regarding
+    // hfa types.
     //
     var_types getArgTypeForStruct(CORINFO_CLASS_HANDLE clsHnd,
                                   structPassingKind*   wbPassStruct,
+                                  bool                 isVarArg,
                                   unsigned             structSize = 0);
 
     // Get the type that is used to return values of the given struct type.
@@ -4411,7 +4416,7 @@ public:
 
     bool fgCastNeeded(GenTree* tree, var_types toType);
     GenTree* fgDoNormalizeOnStore(GenTree* tree);
-    GenTree* fgMakeTmpArgNode(unsigned tmpVarNum UNIX_AMD64_ABI_ONLY_ARG(const bool passedInRegisters));
+    GenTree* fgMakeTmpArgNode(bool isVarArg, unsigned tmpVarNum UNIX_AMD64_ABI_ONLY_ARG(const bool passedInRegisters));
 
     // The following check for loops that don't execute calls
     bool fgLoopCallMarked;
@@ -9279,8 +9284,8 @@ public:
     void fgMorphSystemVStructArgs(GenTreeCall* call, bool hasStructArgument);
 #endif // defined(UNIX_AMD64_ABI)
 
-    void fgMorphMultiregStructArgs(GenTreeCall* call);
-    GenTree* fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntryPtr);
+    void fgMorphMultiregStructArgs(GenTreeCall* call, bool isVarArg);
+    GenTree* fgMorphMultiregStructArg(GenTree* arg, fgArgTabEntry* fgEntryPtr, bool isVarArg);
 
     bool killGCRefs(GenTree* tree);
 
