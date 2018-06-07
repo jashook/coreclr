@@ -1470,7 +1470,7 @@ void fgArgInfo::ArgsComplete()
             hasStructRegArg = true;
             hasStackArgs    = true;
         }
-#endif // FEATURE_ARG_SPLIT
+#endif       // FEATURE_ARG_SPLIT
         else // we have a register argument, next we look for a struct type.
         {
             if (varTypeIsStruct(argx) UNIX_AMD64_ABI_ONLY(|| curArgTabEntry->isStruct))
@@ -4041,7 +4041,7 @@ GenTreeCall* Compiler::fgMorphArgs(GenTreeCall* call)
                         }
                     }
                 }
-#else // not _TARGET_ARM_ or _TARGET_ARM64_
+#else  // not _TARGET_ARM_ or _TARGET_ARM64_
 
 #if defined(UNIX_AMD64_ABI)
 

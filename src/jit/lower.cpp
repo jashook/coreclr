@@ -289,9 +289,9 @@ GenTree* Lowering::LowerNode(GenTree* node)
                 BlockRange().InsertBefore(store, bitcast);
             }
 #endif // _TARGET_AMD64_
-       // TODO-1stClassStructs: Once we remove the requirement that all struct stores
-       // are block stores (GT_STORE_BLK or GT_STORE_OBJ), here is where we would put the local
-       // store under a block store if codegen will require it.
+            // TODO-1stClassStructs: Once we remove the requirement that all struct stores
+            // are block stores (GT_STORE_BLK or GT_STORE_OBJ), here is where we would put the local
+            // store under a block store if codegen will require it.
             if ((node->TypeGet() == TYP_STRUCT) && (node->gtGetOp1()->OperGet() != GT_PHI))
             {
 #if FEATURE_MULTIREG_RET
@@ -1247,7 +1247,7 @@ GenTree* Lowering::NewPutArg(GenTreeCall* call, GenTree* arg, fgArgTabEntry* inf
                         argReg = genRegArgNext(argReg);
                     }
 #endif // _TARGET_ARM_
-       // Initialize all the gtRegNum's since the list won't be traversed in an LIR traversal.
+                    // Initialize all the gtRegNum's since the list won't be traversed in an LIR traversal.
                     fieldListPtr->gtRegNum = REG_NA;
                 }
 
@@ -2309,7 +2309,7 @@ GenTree* Lowering::LowerTailCallViaHelper(GenTreeCall* call, GenTree* callTarget
     LIR::Range callTargetRange = LIR::SeqTree(comp, callTarget);
 
 #if defined(_TARGET_AMD64_) || defined(_TARGET_ARM_)
-    
+
     // For ARM32 and AMD64, first argument is CopyRoutine and second argument is a place holder node.
     fgArgTabEntry* argEntry;
 
@@ -2721,7 +2721,7 @@ GenTree* Lowering::OptimizeConstCompare(GenTree* cmp)
 #ifdef _TARGET_XARCH_
                  || IsContainableMemoryOp(castOp)
 #endif
-                );
+                     );
 
             if (removeCast)
             {
@@ -3223,8 +3223,8 @@ GenTree* Lowering::LowerDelegateInvoke(GenTreeCall* call)
 #ifdef _TARGET_X86_ // x86 tailcall via helper follows normal calling convention, but with extra stack args.
         const unsigned argNum = 0;
 #else  // !_TARGET_X86_
-       // In case of helper dispatched tail calls, "thisptr" will be the third arg.
-       // The first two args are: real call target and addr of args copy routine.
+        // In case of helper dispatched tail calls, "thisptr" will be the third arg.
+        // The first two args are: real call target and addr of args copy routine.
         const unsigned argNum  = 2;
 #endif // !_TARGET_X86_
 
@@ -5837,7 +5837,7 @@ void Lowering::ContainCheckNode(GenTree* node)
 #if FEATURE_ARG_SPLIT
         case GT_PUTARG_SPLIT:
 #endif // FEATURE_ARG_SPLIT
-       // The regNum must have been set by the lowering of the call.
+            // The regNum must have been set by the lowering of the call.
             assert(node->gtRegNum != REG_NA);
             break;
 #ifdef _TARGET_XARCH_
