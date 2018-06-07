@@ -1464,7 +1464,7 @@ void fgArgInfo::ArgsComplete()
             continue;
 #endif
         }
-#ifdef FEATURE_ARG_SPLIT
+#if FEATURE_ARG_SPLIT
         else if (curArgTabEntry->isSplit)
         {
             hasStructRegArg = true;
@@ -1590,7 +1590,7 @@ void fgArgInfo::ArgsComplete()
                 {
                     prevArgTabEntry->needPlace = true;
                 }
-#ifdef FEATURE_ARG_SPLIT
+#if FEATURE_ARG_SPLIT
                 else if (prevArgTabEntry->isSplit)
                 {
                     prevArgTabEntry->needPlace = true;
