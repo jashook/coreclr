@@ -24,6 +24,8 @@ import subprocess
 import sys
 import tempfile
 
+import xml.etree.ElementTree
+
 from collections import defaultdict
 from sys import platform as _platform
 
@@ -45,6 +47,7 @@ parser.add_argument("-build_type", dest="build_type", nargs='?', default="Debug"
 parser.add_argument("-test_location", dest="test_location", nargs="?", default=None)
 parser.add_argument("-core_root", dest="core_root", nargs='?', default=None)
 parser.add_argument("-coreclr_repo_location", dest="coreclr_repo_location", default=os.getcwd())
+parser.add_argument("--analyze_results_only", dest="analyze_results_only", action="store_true", default=False)
 
 # Only used on Unix
 parser.add_argument("-test_native_bin_location", dest="test_native_bin_location", nargs='?', default=None)
@@ -150,7 +153,7 @@ def get_environment():
     return complus_vars
 
 def call_msbuild(coreclr_repo_location,
-                 msbuild_location,
+                 dotnetcli_location,
                  host_os,
                  arch,
                  build_type, 
@@ -159,7 +162,7 @@ def call_msbuild(coreclr_repo_location,
 
     Args:
         coreclr_repo_location(str)  : path to coreclr repo
-        msbuild_location(str)       : path to msbuild
+        dotnetcli_location(str)     : path to the dotnet cli in the tools dir
         sequential(bool)            : run sequentially if True
 
         host_os(str)                : os
@@ -183,10 +186,11 @@ def call_msbuild(coreclr_repo_location,
     if not os.path.isdir(logs_dir):
         os.makedirs(logs_dir)
     
-    command =   [msbuild_location,
-                os.path.join(coreclr_repo_location, "tests", "runtest.proj"),
-                "/p:Runtests=true",
-                "/clp:showcommandline"]
+    command =   [dotnetcli_location,
+                 "msbuild",
+                 os.path.join(coreclr_repo_location, "tests", "runtest.proj"),
+                 "/p:Runtests=true",
+                 "/clp:showcommandline"]
 
     log_path = os.path.join(logs_dir, "TestRunResults_%s_%s_%s" % (host_os, arch, build_type))
     build_log = log_path + ".log"
@@ -206,11 +210,11 @@ def call_msbuild(coreclr_repo_location,
                 "/p:__BuildType=%s" % build_type,
                 "/p:__LogsDir=%s" % logs_dir]
 
-    if host_os != "Windows_NT":
-        command = ["bash"] + command
-
     print " ".join(command)
-    subprocess.check_output(command)
+    proc = subprocess.Popen(command)
+    proc.communicate()
+
+    sys.exit(proc.returncode)
 
 def copy_native_test_bin_to_core_root(host_os, path, core_root):
     """ Recursively copy all files to core_root
@@ -262,8 +266,8 @@ def run_tests(host_os,
     if host_os != "Windows_NT":
         copy_native_test_bin_to_core_root(host_os, os.path.join(test_native_bin_location, "src"), core_root)
 
-    # Setup the msbuild location
-    msbuild_location = os.path.join(coreclr_repo_location, "Tools", "msbuild.%s" % ("cmd" if host_os == "Windows_NT" else "sh"))
+    # Setup the dotnetcli location
+    dotnetcli_location = os.path.join(coreclr_repo_location, "Tools", "dotnetcli", "dotnet.exe")
 
     # Setup the environment
     if is_long_gc:
@@ -289,12 +293,32 @@ def run_tests(host_os,
 
     # Call msbuild.
     call_msbuild(coreclr_repo_location,
-                 msbuild_location,
+                 dotnetcli_location,
                  host_os,
                  arch,
                  build_type,
                  sequential=run_sequential)
 
+def parse_test_results(host_os, arch, build_type, coreclr_repo_location):
+    """ Parse the test results for test execution information
+
+    Args:
+        host_os                 : os
+        arch                    : architecture run on
+        build_type              : build configuration (debug, checked, release)
+        coreclr_repo_location   : coreclr repo location
+
+    """
+
+    test_run_location = os.path.join(coreclr_repo_location, "bin", "Logs", "testRun.xml")
+
+    if not os.path.isfile(test_run_location):
+        print "Unable to find testRun.xml. This normally means the tests did not run."
+        print "It could also mean there was a problem logging. Please run the tests again."
+
+        return
+
+    root = xml.etree.ElementTree.parse(test_run_location).getroot()
 
 def setup_args(args):
     """ Setup the args based on the argparser obj
@@ -308,7 +332,7 @@ def setup_args(args):
     """
 
     host_os = None
-    arch = args.arch
+    arch = args.arch.lower()
     build_type = args.build_type
 
     test_location = args.test_location
@@ -331,25 +355,6 @@ def setup_args(args):
 
     assert os.path.isdir(coreclr_repo_location)
 
-    if test_location is None:
-        print "Using default test location."
-        test_location = os.path.join(coreclr_repo_location, "bin", "tests", "%s.%s.%s" % (host_os, arch, build_type))
-        print "TestLocation: %s" % test_location
-        print
-
-    if core_root is None:
-        print "Using default location for core_root."
-        core_root = os.path.join(test_location, "Tests", "Core_Root")
-        print "Core_Root: %s" % core_root
-        print
-
-    if host_os != "Windows_NT":
-        if test_native_bin_location is None:
-            print "Using default location for test_native_bin_location."
-            test_native_bin_location = os.path.join(os.path.join(coreclr_repo_location, "bin", "obj", "%s.%s.%s" % (host_os, arch, build_type), "tests"))
-            print "Native bin location: %s" % test_native_bin_location
-            print
-
     valid_arches = ["x64", "x86", "arm", "arm64"]
     if not arch in valid_arches:
         print "Unsupported architecture: %s." % arch
@@ -357,18 +362,64 @@ def setup_args(args):
         sys.exit(1)
 
     valid_build_types = ["Debug", "Checked", "Release"]
+    if build_type != None and len(build_type) > 0:
+        # Force the build type to be capitalized
+        build_type = build_type.capitalize()
+
     if not build_type in valid_build_types:
         print "Unsupported configuration: %s." % build_type
         print "Supported configurations: %s" % "[%s]" % ", ".join(valid_build_types)
         sys.exit(1)
 
-    if not os.path.isdir(test_location):
-        print "Error, test location: %s, does not exist." % test_location
-        sys.exit(1)
-    
-    if not os.path.isdir(core_root):
-        print "Error, core_root: %s, does not exist." % core_root
-        sys.exit(1)
+    if test_location is None:
+        default_test_location = os.path.join(coreclr_repo_location, "bin", "tests", "%s.%s.%s" % (host_os, arch, build_type))
+        
+        if os.path.isdir(default_test_location):
+            test_location = default_test_location
+
+            print "Using default test location."
+            print "TestLocation: %s" % default_test_location
+            print
+
+        else:
+            # The tests for the default location have not been built.
+            print "Error, unable to find the tests at %s" % default_test_location
+
+            suggested_location = None
+            possible_test_locations = [item for item in os.listdir(os.path.join(coreclr_repo_location, "bin", "tests")) if host_os in item and arch in item]
+            if len(possible_test_locations) > 0:
+                print "Tests are built for the following:"
+                for item in possible_test_locations:
+                    print item.replace(".", " ")
+                
+                print "Please run runtest.py again with the correct build-type by passing -build_type"
+            else:
+                print "No tests have been built for this host and arch. Please run build-test.%s" % ("cmd" if host_os == "Windows_NT" else "sh")
+                sys.exit(1)
+
+    if core_root is None:
+        default_core_root = os.path.join(test_location, "Tests", "Core_Root")
+
+        if os.path.isdir(default_core_root):
+            core_root = default_core_root
+
+            print "Using default location for core_root."
+            print "Core_Root: %s" % core_root
+            print
+
+        else:
+            # CORE_ROOT has not been setup correctly.
+            print "Error, unable to find CORE_ROOT at %s" % default_core_root
+            print "Please run build-test.cmd %s %s generatelayoutonly" % (arch, build_type)
+
+            sys.exit(1)
+
+    if host_os != "Windows_NT":
+        if test_native_bin_location is None:
+            print "Using default location for test_native_bin_location."
+            test_native_bin_location = os.path.join(os.path.join(coreclr_repo_location, "bin", "obj", "%s.%s.%s" % (host_os, arch, build_type), "tests"))
+            print "Native bin location: %s" % test_native_bin_location
+            print
 
     if host_os != "Windows_NT":
         if not os.path.isdir(test_native_bin_location):
@@ -392,7 +443,9 @@ def setup_tools(host_os, coreclr_repo_location):
 
     is_windows = host_os == "Windows_NT"
 
-    if os.path.isfile(os.path.join(tools_dir, "msbuild.%s" % ("cmd" if is_windows else "sh"))):
+    dotnetcli_location = os.path.join(coreclr_repo_location, "Tools", "dotnetcli", "dotnet.exe")
+
+    if os.path.isfile(dotnetcli_location):
         setup = True
     
     # init the tools for the repo
