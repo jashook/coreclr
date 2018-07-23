@@ -16,6 +16,7 @@
 ################################################################################
 
 import argparse
+import datetime
 import json
 import os
 import platform
@@ -51,6 +52,263 @@ parser.add_argument("--analyze_results_only", dest="analyze_results_only", actio
 
 # Only used on Unix
 parser.add_argument("-test_native_bin_location", dest="test_native_bin_location", nargs='?', default=None)
+
+################################################################################
+# Classes
+################################################################################
+
+class DebugEnv:
+    def __init__(self, 
+                 host_os, 
+                 arch, 
+                 build_type, 
+                 env, 
+                 core_root, 
+                 tests_location, 
+                 coreclr_repo_location, 
+                 test):
+        """ Go through the failing tests and create repros for them
+
+        Args:
+            host_os (String)        : os
+            arch (String)           : architecture
+            build_type (String)     : build configuration (debug, checked, release)
+            env                     : env for the repro
+            core_root (String)      : Core_Root path
+            tests_location (Str)    : Location of the tests
+            coreclr_repo_location   : coreclr repo location
+            test ({})               : The test metadata
+        
+        """
+
+        # Undo the test name into a path.
+        location = test["name"].split("._")
+        location = os.path.sep.join(location)
+
+        value = "%s" % "cmd" if host_os == "Windows_NT" else "sh"
+
+        location = location.split("_%s" % value)
+
+        value = ".%s" % value
+        location = value.join(location)
+
+        starting_path = tests_location
+
+        current_item = ""
+        for item in location.split("_"):
+            test_path = os.path.join(starting_path, current_item + item)
+
+            if os.path.isfile(test_path):
+                starting_path = test_path
+            if not os.path.isdir(test_path):
+                current_item += item + "_"
+            else:
+                current_item = ""
+                starting_path = test_path
+
+        location = starting_path
+
+        # Change the extension to .exe
+        location = os.path.splitext(location)[0] + ".exe"
+
+        assert os.path.isfile(location)
+
+        self.unique_name = "%s_%s_%s_%s" % (test["name"],
+                                            host_os,
+                                            arch,
+                                            build_type)
+
+        self.host_os = host_os
+        self.arch = arch
+        self.build_type = build_type
+        self.env = env
+        self.core_root = core_root
+        self.test = test
+        self.test_location = location
+        self.coreclr_repo_location = coreclr_repo_location
+
+        self.__create_repro_wrapper__()
+
+        self.path = None
+        
+        if self.host_os == "Windows_NT":
+            self.path = self.unique_name + ".cmd"
+        else:
+            self.path = self.unique_name + ".sh"
+
+        repro_location = os.path.join(coreclr_repo_location, "bin", "repro")
+        assert os.path.isdir(repro_location)
+
+        self.path = os.path.join(repro_location, self.path)
+        self.__add_configuration_to_launch_json__()
+
+    def __add_configuration_to_launch_json__(self):
+        """ Add to or create a launch.json with debug information for the test
+
+        Notes:
+            This will allow debugging using the cpp extension in vscode.
+        """
+
+        repro_location = os.path.join(self.coreclr_repo_location, "bin", "repro")
+        assert os.path.isdir(repro_location)
+
+        vscode_dir = os.path.join(repro_location, ".vscode")
+        if not os.path.isdir(vscode_dir):
+            os.mkdir(vscode_dir)
+
+        assert os.path.isdir(vscode_dir)
+
+        launch_json_location = os.path.join(vscode_dir, "launch.json")
+        if not os.path.isfile(launch_json_location):
+            initial_json = {
+                "version": "0.2.0",
+                "configurations": []
+            }
+
+            json_str = json.dumps(initial_json, 
+                                  indent=4, 
+                                  separators=(',', ': '))
+
+            with open(launch_json_location, 'w') as file_handle:
+                file_handle.write(json_str)
+
+        launch_json = None
+        with open(launch_json_location) as file_handle:
+            launch_json = file_handle.read()
+        
+        launch_json = json.loads(launch_json)
+
+        configurations = launch_json["configurations"]
+
+        dbg_type = "cppvsdbg" if self.host_os == "Windows_NT" else ""
+        core_run = os.path.join(self.core_root, "corerun")
+
+        env = {
+            "COMPlus_AssertOnNYI": "1",
+            "COMPlus_ContinueOnAssert": "0"
+        }
+
+        if self.env is not None:
+            # Convert self.env to a defaultdict
+            self.env = defaultdict(lambda: None, self.env)
+            for key, value in env.iteritems():
+                self.env[key] = value
+            
+        else:
+            self.env = env
+
+        environment = []
+        for key, value in self.env.iteritems():
+            env = {
+                "name": key,
+                "value": value
+            }
+
+            environment.append(env)
+
+        configuration = defaultdict(lambda: None, {
+            "name": self.unique_name,
+            "type": dbg_type,
+            "request": "launch",
+            "program": core_run,
+            "args": [self.test_location],
+            "stopAtEntry": False,
+            "cwd": os.path.join("${workspaceFolder}", "..", ".."),
+            "environment": environment,
+            "externalConsole": True
+        })
+
+        if self.build_type.lower() != "release":
+            symbol_path = os.path.join(self.core_root, "PDB")
+            configuration["symbolSearchPath"] = symbol_path
+
+        # Update configuration if it already exists.
+        config_exists = False
+        for index, config in enumerate(configurations):
+            if config["name"] == self.unique_name:
+                configurations[index] = configuration
+                config_exists = True
+
+        if not config_exists:
+            configurations.append(configuration)
+        json_str = json.dumps(launch_json,
+                              indent=4, 
+                              separators=(',', ': '))
+
+        with open(launch_json_location, 'w') as file_handle:
+            file_handle.write(json_str)
+
+    def __create_repro_wrapper__(self):
+        """ Create the repro wrapper
+        """
+
+        if self.host_os == "Windows_NT":
+            self.__create_batch_wrapper__()
+        else:
+            self.__create_bash_wrapper__()
+
+    def __create_batch_wrapper__(self):
+        """ Create a windows batch wrapper
+        """
+    
+        wrapper = \
+"""@echo off
+REM ============================================================================
+REM Repro environment for %s
+REM 
+REM Notes:
+REM 
+REM This wrapper is automatically generated by runtest.py. It includes the
+REM necessary environment to reproduce a failure that occured during running
+REM the tests.
+REM
+REM In order to change how this wrapper is generated, see
+REM runtest.py:__create_batch_wrapper__(). Please note that it is possible
+REM to recreate this file by running tests/runtest.py --analyze_results_only
+REM with the appropriate environment set and the correct arch and build_type
+REM passed.
+REM
+REM ============================================================================
+
+REM Set Core_Root if it has not been already set.
+if "%%CORE_ROOT%%"=="" set CORE_ROOT=%s
+
+echo Core_Root is set to: "%%CORE_ROOT%%"
+
+""" % (self.unique_name, self.core_root)
+
+        line_sep = os.linesep
+
+        if self.env is not None:
+            for key, value in self.env:
+                wrapper += "echo set %s=%s%s" % (key, value, line_sep)
+                wrapper += "set %s=%s%s" % (key, value, line_sep)
+
+        wrapper += "%s" % line_sep
+        wrapper += "echo \"%%CORE_ROOT%%\"\\corerun %s%s" % (self.test_location, line_sep) 
+        wrapper += "\"%%CORE_ROOT%%\"\\corerun %s%s" % (self.test_location, line_sep) 
+
+        self.wrapper = wrapper
+    
+    def __create_bash_wrapper__(self):
+        """ Create the unix bash wrapper
+        """
+
+        pass
+
+    def write_repro(self):
+        """ Write out the wrapper
+
+        Notes:
+            This will check if the wrapper repros or not. If it does not repro
+            it will be put into an "unstable" folder under bin/repro.
+            Else it will just be written out.
+
+        """
+
+        with open(self.path, 'w') as file_handle:
+            file_handle.write(self.wrapper)
+
 
 ################################################################################
 # Helper Functions
@@ -299,27 +557,6 @@ def run_tests(host_os,
                  build_type,
                  sequential=run_sequential)
 
-def parse_test_results(host_os, arch, build_type, coreclr_repo_location):
-    """ Parse the test results for test execution information
-
-    Args:
-        host_os                 : os
-        arch                    : architecture run on
-        build_type              : build configuration (debug, checked, release)
-        coreclr_repo_location   : coreclr repo location
-
-    """
-
-    test_run_location = os.path.join(coreclr_repo_location, "bin", "Logs", "testRun.xml")
-
-    if not os.path.isfile(test_run_location):
-        print "Unable to find testRun.xml. This normally means the tests did not run."
-        print "It could also mean there was a problem logging. Please run the tests again."
-
-        return
-
-    root = xml.etree.ElementTree.parse(test_run_location).getroot()
-
 def setup_args(args):
     """ Setup the args based on the argparser obj
 
@@ -463,6 +700,193 @@ def setup_tools(host_os, coreclr_repo_location):
 
     return setup
 
+def parse_test_results(host_os, arch, build_type, coreclr_repo_location):
+    """ Parse the test results for test execution information
+
+    Args:
+        host_os                 : os
+        arch                    : architecture run on
+        build_type              : build configuration (debug, checked, release)
+        coreclr_repo_location   : coreclr repo location
+
+    """
+
+    test_run_location = os.path.join(coreclr_repo_location, "bin", "Logs", "testRun.xml")
+
+    if not os.path.isfile(test_run_location):
+        print "Unable to find testRun.xml. This normally means the tests did not run."
+        print "It could also mean there was a problem logging. Please run the tests again."
+
+        return
+
+    assemblies = xml.etree.ElementTree.parse(test_run_location).getroot()
+
+    tests = defaultdict(lambda: None)
+    for assembly in assemblies:
+        for collection in assembly:
+            if collection.tag == "errors" and collection.text != None:
+                # Something went wrong during running the tests.
+                print "Error running the tests, please run runtest.py again."
+                sys.exit(1)
+            elif collection.tag != "errors":
+                test_name = None
+                for test in collection:
+                    test_name = test.attrib["type"]
+
+                    test_name += "cmd" if host_os == "Windows_NT" else "sh"
+
+                assert test_name != None
+
+                failed = collection.attrib["failed"]
+                skipped = collection.attrib["skipped"]
+                passed = collection.attrib["passed"]
+                time = float(collection.attrib["time"])
+                
+                assert tests[test_name] == None
+                tests[test_name] = {
+                    "name": test_name,
+                    "failed": failed,
+                    "skipped": skipped,
+                    "passed": passed,
+                    "time": time
+                }
+
+    return tests
+
+def print_summary(tests):
+    """ Print a summary of the test results
+
+    Args:
+        tests (defaultdict[String]: { }): The tests that were reported by 
+                                        : xunit
+    
+    """
+
+    assert tests is not None
+
+    failed_tests = []
+    passed_tests = []
+    skipped_tests = []
+
+    for test in tests:
+        test = tests[test]
+
+        if test["failed"] == "1":
+            failed_tests.append(test)
+        elif test["passed"] == "1":
+            passed_tests.append(test)
+        else:
+            skipped_tests.append(test)
+
+    print
+    print "Total tests run: %d" % len(tests)
+    print
+    print "Total passing tests: %d" % len(passed_tests)
+    print "Total failed tests: %d" % len(failed_tests)
+    print "Total skipped tests: %d" % len(skipped_tests)
+    print
+
+    failed_tests.sort(key=lambda item: item["time"], reverse=True)
+    passed_tests.sort(key=lambda item: item["time"], reverse=True)
+    skipped_tests.sort(key=lambda item: item["time"], reverse=True)
+
+    if len(failed_tests) > 0:
+        print "Failed tests:"
+        print
+        for item in failed_tests:
+            time = item["time"]
+            unit = "seconds"
+
+            # If it can be expressed in hours
+            if time > 60**2:
+                time = time / (60**2)
+                unit = "hours"
+
+            elif time > 60 and time < 60**2:
+                time = time / 60
+                unit = "minutes"
+
+            print "%s (%d %s)" % (item["name"], time, unit)
+
+    if len(passed_tests) > 50:
+        print
+        print "50 slowest passing tests:"
+        print
+        for index, item in enumerate(passed_tests):
+            time = item["time"]
+            unit = "seconds"
+
+            # If it can be expressed in hours
+            if time > 60**2:
+                time = time / (60**2)
+                unit = "hours"
+
+            elif time > 60 and time < 60**2:
+                time = time / 60
+                unit = "minutes"
+
+            print "%s (%d %s)" % (item["name"], time, unit)
+
+            if index >= 50:
+                break
+
+    if len(skipped_tests) > 0:
+        print
+        print "Skipped tests:"
+        print
+        for item in skipped_tests:
+            time = item["time"]
+            unit = "seconds"
+
+            # If it can be expressed in hours
+            if time > 60**2:
+                time = time / (60**2)
+                unit = "hours"
+
+            elif time > 60 and time < 60**2:
+                time = time / 60
+                unit = "minutes"
+
+            print "%s (%d %s)" % (item["name"], time, unit)
+
+def create_repro(host_os, arch, build_type, env, core_root, test_location, coreclr_repo_location, tests):
+    """ Go through the failing tests and create repros for them
+
+    Args:
+        host_os (String)                : os
+        arch (String)                   : architecture
+        build_type (String)             : build configuration (debug, checked, release)
+        core_root (String)              : Core_Root path
+        test_location (String)          : path to built tests
+        coreclr_repo_location (String)  : Location of coreclr git repo
+        tests (defaultdict[String]: { }): The tests that were reported by 
+                                        : xunit
+    
+    """
+
+    assert tests is not None
+
+    failed_tests = [tests[item] for item in tests if tests[item]["failed"] == "1"]
+    if len(failed_tests) == 0:
+        return
+    
+    bin_location = os.path.join(coreclr_repo_location, "bin")
+    assert os.path.isdir(bin_location)
+
+    repro_location = os.path.join(bin_location, "repro")
+    if not os.path.isdir(repro_location):
+        print "mkdir %s" % repro_location
+        os.mkdir(repro_location)
+
+    assert os.path.isdir(repro_location)
+
+    # Now that the repro_location exists under <coreclr_location>/bin/repro
+    # create wrappers which will simply run the test with the correct environment
+
+    for test in failed_tests:
+        debug_env = DebugEnv(host_os, arch, build_type, env, core_root, test_location, coreclr_repo_location, test)
+        debug_env.write_repro()
+
 ################################################################################
 # Main
 ################################################################################
@@ -470,20 +894,28 @@ def setup_tools(host_os, coreclr_repo_location):
 def main(args):
     host_os, arch, build_type, coreclr_repo_location, core_root, test_location, test_native_bin_location = setup_args(args)
 
-    # Setup the tools for the repo.
-    setup_tools(host_os, coreclr_repo_location)
+    env = None
+    if not args.analyze_results_only:
+        # Setup the tools for the repo.
+        setup_tools(host_os, coreclr_repo_location)
 
-    env = get_environment()
-    ret_code = create_and_use_test_env(host_os, 
-                                       env, 
-                                       lambda path: run_tests(host_os, 
-                                                              arch,
-                                                              build_type,
-                                                              core_root, 
-                                                              coreclr_repo_location,
-                                                              test_location, 
-                                                              test_native_bin_location, 
-                                                              test_env=path))
+        env = get_environment()
+        ret_code = create_and_use_test_env(host_os, 
+                                        env, 
+                                        lambda path: run_tests(host_os, 
+                                                                arch,
+                                                                build_type,
+                                                                core_root, 
+                                                                coreclr_repo_location,
+                                                                test_location, 
+                                                                test_native_bin_location, 
+                                                                test_env=path))
+
+    tests = parse_test_results(host_os, arch, build_type, coreclr_repo_location)
+
+    if tests is not None:
+        print_summary(tests)
+        create_repro(host_os, arch, build_type, env, core_root, test_location, coreclr_repo_location, tests)
 
 ################################################################################
 # __main__
