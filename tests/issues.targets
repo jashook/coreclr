@@ -9,7 +9,7 @@
 
     <!-- All OS/Arch common excludes -->
     <ItemGroup Condition="'$(XunitTestBinBase)' != ''">
-        <ExcludeList Include="$(XunitTestBinBase)/GC/Coverage/271010/*">
+        <ExcludeList Include="$(XunitTestBinBase)/GC/Coverage/271010/**">
             <Issue>3392</Issue>
         </ExcludeList>
         <ExcludeList Include="$(XunitTestBinBase)/GC/Coverage/smalloom/*">
