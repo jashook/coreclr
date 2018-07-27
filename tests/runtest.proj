@@ -216,6 +216,13 @@ namespace $([System.String]::Copy($(Category)).Replace(".","_").Replace("\","").
       </_XunitEpilog>
     </PropertyGroup>
 
+    <Message Text="Exclude list location: @(ExcludeList.FullPath)" Importance="high" />
+    <Message Text="Parameters:" Importance="high" />
+
+    <Message Text="XUnitBinBase: $(XunitTestBinBase)" Importance="high" />
+    <Message Text="BuildArch: $(BuildArch) " Importance="high" />
+    <Message Text="BuildTestsAgainstPackages: $(BuildTestsAgainstPackages)" Importance="high" />
+
     <ItemGroup>
       <CanonicalExcludeList Include="%(ExcludeList.FullPath)" Condition="$(HaveExcludes)"/>
     </ItemGroup>
@@ -316,10 +323,20 @@ namespace $([System.String]::Copy($(Category)).Replace(".","_").Replace("\","").
       <AllXUnitFacts Include= "%(AllCommands._XunitFact)" />
     </ItemGroup>
 
+    <Message Text="HasExcludes: $(HaveExcludes)" Importance="high"/>
+    <Message Text="CanonicalExcludeList: @(CanonicalExcludeList)" Importance="high"/>
+    <Message Text="AllCMDExcludeFilter: @(AllCMDExcludeFilter)" Importance="high"/>
+
+    <Message Text="_CMDDIR: $(_CMDDIR)" Importance="high"/>
+    <Message Text="AllCMDsPresent: @(AllCMDsPresent)" Importance="high"/>
+    <Message Text="AllCMDs: @(AllCMDs)" Importance="high"/>
+
   </Target>
 
   <Target Name="CreateAllWrappers" DependsOnTargets="GetListOfTestCmds;FindCmdDirectories">
+    <Message Text="TestDirectories: @(TestDirectories)" Importance="high" />
     <MSBuild Projects="$(MSBuildProjectFile)" Targets="CreateXunitWrapper;BuildXunitWrapper" Properties="_CMDDIR=%(TestDirectories.Identity)" />
+    <Message Text="Output the list of excludes." Importance="high"/>
   </Target>
 
   <Target Name="GetListOfTestCmds">
