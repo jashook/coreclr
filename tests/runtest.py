@@ -61,6 +61,7 @@ parser.add_argument("-test_native_bin_location", dest="test_native_bin_location"
 ################################################################################
 
 g_verbose = False
+file_name_cache = defaultdict(lambda: None)
 
 ################################################################################
 # Classes
@@ -72,8 +73,7 @@ class DebugEnv:
                  arch, 
                  build_type, 
                  env, 
-                 core_root, 
-                 tests_location, 
+                 core_root,
                  coreclr_repo_location, 
                  test):
         """ Go through the failing tests and create repros for them
@@ -84,64 +84,10 @@ class DebugEnv:
             build_type (String)     : build configuration (debug, checked, release)
             env                     : env for the repro
             core_root (String)      : Core_Root path
-            tests_location (Str)    : Location of the tests
             coreclr_repo_location   : coreclr repo location
             test ({})               : The test metadata
         
         """
-
-        # Undo the test name into a path.
-        location = test["name"].split("._")
-        location = os.path.sep.join(location)
-
-        value = "%s" % "cmd" if host_os == "Windows_NT" else "sh"
-
-        # Retype the exension
-        assert location[-3:] == "_%s" % value
-        location = "%s.%s" % (location[:-3], value)
-
-        is_file_or_dir = lambda path : os.path.isdir(path) or os.path.isfile(path)
-
-        # Find the test by searching down the directory list.
-        starting_path = tests_location
-        loc_split = location.split("_")
-        append = False
-        for index, item in enumerate(loc_split):
-            if not append:
-                test_path = os.path.join(starting_path, item)
-            else:
-                append = False
-                test_path = starting_path + "_" + item
-
-                # Scan through the test directory looking for a similar
-                # file
-                for item in os.listdir(os.path.dirname(starting_path)):
-                    underscore_item, count = re.subn("[" + string.punctuation + "]", "_", item)
-
-                    if underscore_item == os.path.basename(test_path):
-                        test_path = os.path.join(os.path.dirname(starting_path), item)
-                        break
-
-            if not is_file_or_dir(test_path):
-                append = True
-
-            # It is possible that there is another directory that is named
-            # without an underscore.
-            elif index + 1 < len(loc_split) and os.path.isdir(test_path):
-
-                next_test_path = os.path.join(test_path, loc_split[index + 1])
-                added_path = test_path + "_" + loc_split[index + 1]
-                if not is_file_or_dir(next_test_path) and is_file_or_dir(added_path):
-                    append = True
-            
-            starting_path = test_path
-
-        location = starting_path
-        if not os.path.isfile(location):
-            pass
-        
-        assert(os.path.isfile(location))
-
         self.unique_name = "%s_%s_%s_%s" % (test["name"],
                                             host_os,
                                             arch,
@@ -153,7 +99,7 @@ class DebugEnv:
         self.env = env
         self.core_root = core_root
         self.test = test
-        self.test_location = location
+        self.test_location = test["test_path"]
         self.coreclr_repo_location = coreclr_repo_location
 
         self.__create_repro_wrapper__()
@@ -170,7 +116,7 @@ class DebugEnv:
 
         self.path = os.path.join(repro_location, self.path)
         
-        exe_location = os.path.splitext(starting_path)[0] + ".exe"
+        exe_location = os.path.splitext(self.test_location)[0] + ".exe"
         if os.path.isfile(exe_location):
             self.exe_location = exe_location
             self.__add_configuration_to_launch_json__()
@@ -771,7 +717,93 @@ def setup_tools(host_os, coreclr_repo_location):
 
     return setup
 
-def parse_test_results(host_os, arch, build_type, coreclr_repo_location):
+def find_test_from_name(host_os, test_location, test_name):
+    """ Given a test's name return the location on disk
+
+    Args:
+        host_os (str)       : os
+        test_location (str) :path to the coreclr tests
+        test_name (str)     : Name of the test, all special characters will have
+                            : been replaced with underscores.
+    
+    Return:
+        test_path (str): Path of the test based on its name
+    """
+
+    location = test_name
+
+    # Lambdas and helpers
+    is_file_or_dir = lambda path : os.path.isdir(path) or os.path.isfile(path)
+    def match_filename(test_path):
+        # Scan through the test directory looking for a similar
+        # file
+        global file_name_cache
+
+        if not os.path.isdir(os.path.dirname(test_path)):
+            pass
+
+        assert os.path.isdir(os.path.dirname(test_path))
+        size_of_largest_name_file = 0
+
+        dir_contents = file_name_cache[os.path.dirname(test_path)]
+
+        if dir_contents is None:
+            dir_contents = defaultdict(lambda: None)
+            for item in os.listdir(os.path.dirname(test_path)):
+                dir_contents[re.sub("[" + string.punctuation + "]", "_", item)] = item
+
+            file_name_cache[os.path.dirname(test_path)] = dir_contents
+
+        # It is possible there has already been a match
+        # therefore we need to remove the punctuation again.
+        basename_to_match = re.sub("[" + string.punctuation + "]", "_", os.path.basename(test_path))
+        if basename_to_match in dir_contents:
+            test_path = os.path.join(os.path.dirname(test_path), dir_contents[basename_to_match])
+
+        size_of_largest_name_file = len(max(dir_contents, key=len))
+
+        return test_path, size_of_largest_name_file
+
+    # Find the test by searching down the directory list.
+    starting_path = test_location
+    loc_split = location.split("_")
+    append = False
+    for index, item in enumerate(loc_split):
+        if not append:
+            test_path = os.path.join(starting_path, item)
+        else:
+            append = False
+            test_path, size_of_largest_name_file = match_filename(starting_path + "_" + item)
+
+        if not is_file_or_dir(test_path):
+            append = True
+
+        # It is possible that there is another directory that is named
+        # without an underscore.
+        elif index + 1 < len(loc_split) and os.path.isdir(test_path):
+
+            next_test_path = os.path.join(test_path, loc_split[index + 1])
+            if not is_file_or_dir(next_test_path):
+                added_path = test_path
+                for forward_index in range(index + 1, len(loc_split)):
+                    added_path, size_of_largest_name_file = match_filename(added_path + "_" + loc_split[forward_index])
+                    if is_file_or_dir(added_path):
+                        append = True
+                        break
+                    elif size_of_largest_name_file < len(os.path.basename(added_path)):
+                        break
+        
+        starting_path = test_path
+
+    location = starting_path
+    if not os.path.isfile(location):
+        pass
+    
+    assert(os.path.isfile(location))
+
+    return location
+
+def parse_test_results(host_os, arch, build_type, coreclr_repo_location, test_location):
     """ Parse the test results for test execution information
 
     Args:
@@ -779,6 +811,7 @@ def parse_test_results(host_os, arch, build_type, coreclr_repo_location):
         arch                    : architecture run on
         build_type              : build configuration (debug, checked, release)
         coreclr_repo_location   : coreclr repo location
+        test_location           : path to coreclr tests
 
     """
 
@@ -802,9 +835,11 @@ def parse_test_results(host_os, arch, build_type, coreclr_repo_location):
             elif collection.tag != "errors":
                 test_name = None
                 for test in collection:
-                    test_name = test.attrib["type"]
+                    type = test.attrib["type"]
+                    method = test.attrib["method"]
 
-                    test_name += "cmd" if host_os == "Windows_NT" else "sh"
+                    type = type.split("._")[0]
+                    test_name = type + method
 
                 assert test_name != None
 
@@ -812,10 +847,13 @@ def parse_test_results(host_os, arch, build_type, coreclr_repo_location):
                 skipped = collection.attrib["skipped"]
                 passed = collection.attrib["passed"]
                 time = float(collection.attrib["time"])
+
+                test_location_on_filesystem = find_test_from_name(host_os, test_location, test_name)
                 
                 assert tests[test_name] == None
                 tests[test_name] = {
                     "name": test_name,
+                    "test_path": test_location_on_filesystem,
                     "failed": failed,
                     "skipped": skipped,
                     "passed": passed,
@@ -877,7 +915,7 @@ def print_summary(tests):
                 time = time / 60
                 unit = "minutes"
 
-            print "%s (%d %s)" % (item["name"], time, unit)
+            print "%s (%d %s)" % (item["test_path"], time, unit)
 
     if len(passed_tests) > 50:
         print
@@ -896,7 +934,7 @@ def print_summary(tests):
                 time = time / 60
                 unit = "minutes"
 
-            print "%s (%d %s)" % (item["name"], time, unit)
+            print "%s (%d %s)" % (item["test_path"], time, unit)
 
             if index >= 50:
                 break
@@ -918,9 +956,9 @@ def print_summary(tests):
                 time = time / 60
                 unit = "minutes"
 
-            print "%s (%d %s)" % (item["name"], time, unit)
+            print "%s (%d %s)" % (item["test_path"], time, unit)
 
-def create_repro(host_os, arch, build_type, env, core_root, test_location, coreclr_repo_location, tests):
+def create_repro(host_os, arch, build_type, env, core_root, coreclr_repo_location, tests):
     """ Go through the failing tests and create repros for them
 
     Args:
@@ -928,12 +966,14 @@ def create_repro(host_os, arch, build_type, env, core_root, test_location, corec
         arch (String)                   : architecture
         build_type (String)             : build configuration (debug, checked, release)
         core_root (String)              : Core_Root path
-        test_location (String)          : path to built tests
         coreclr_repo_location (String)  : Location of coreclr git repo
         tests (defaultdict[String]: { }): The tests that were reported by 
                                         : xunit
     
     """
+
+    print
+    print "Creating repo files..."
 
     assert tests is not None
 
@@ -953,10 +993,12 @@ def create_repro(host_os, arch, build_type, env, core_root, test_location, corec
 
     # Now that the repro_location exists under <coreclr_location>/bin/repro
     # create wrappers which will simply run the test with the correct environment
-
     for test in failed_tests:
-        debug_env = DebugEnv(host_os, arch, build_type, env, core_root, test_location, coreclr_repo_location, test)
+        debug_env = DebugEnv(host_os, arch, build_type, env, core_root, coreclr_repo_location, test)
         debug_env.write_repro()
+
+    print "Repro files written."
+    print "They can be found at %s" % repro_location
 
 ################################################################################
 # Main
@@ -985,11 +1027,14 @@ def main(args):
                                                                 test_native_bin_location, 
                                                                 test_env=path))
 
-    tests = parse_test_results(host_os, arch, build_type, coreclr_repo_location)
+        print "Test run finished."
+
+    print "Parsing test results..."
+    tests = parse_test_results(host_os, arch, build_type, coreclr_repo_location, test_location)
 
     if tests is not None:
         print_summary(tests)
-        create_repro(host_os, arch, build_type, env, core_root, test_location, coreclr_repo_location, tests)
+        create_repro(host_os, arch, build_type, env, core_root, coreclr_repo_location, tests)
 
 ################################################################################
 # __main__
