@@ -24,6 +24,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import re
+import string
 
 import xml.etree.ElementTree
 
@@ -49,9 +51,16 @@ parser.add_argument("-test_location", dest="test_location", nargs="?", default=N
 parser.add_argument("-core_root", dest="core_root", nargs='?', default=None)
 parser.add_argument("-coreclr_repo_location", dest="coreclr_repo_location", default=os.getcwd())
 parser.add_argument("--analyze_results_only", dest="analyze_results_only", action="store_true", default=False)
+parser.add_argument("--verbose", dest="verbose", action="store_true", default=False)
 
 # Only used on Unix
 parser.add_argument("-test_native_bin_location", dest="test_native_bin_location", nargs='?', default=None)
+
+################################################################################
+# Globals
+################################################################################
+
+g_verbose = False
 
 ################################################################################
 # Classes
@@ -87,31 +96,51 @@ class DebugEnv:
 
         value = "%s" % "cmd" if host_os == "Windows_NT" else "sh"
 
-        location = location.split("_%s" % value)
+        # Retype the exension
+        assert location[-3:] == "_%s" % value
+        location = "%s.%s" % (location[:-3], value)
 
-        value = ".%s" % value
-        location = value.join(location)
+        is_file_or_dir = lambda path : os.path.isdir(path) or os.path.isfile(path)
 
+        # Find the test by searching down the directory list.
         starting_path = tests_location
-
-        current_item = ""
-        for item in location.split("_"):
-            test_path = os.path.join(starting_path, current_item + item)
-
-            if os.path.isfile(test_path):
-                starting_path = test_path
-            if not os.path.isdir(test_path):
-                current_item += item + "_"
+        loc_split = location.split("_")
+        append = False
+        for index, item in enumerate(loc_split):
+            if not append:
+                test_path = os.path.join(starting_path, item)
             else:
-                current_item = ""
-                starting_path = test_path
+                append = False
+                test_path = starting_path + "_" + item
+
+                # Scan through the test directory looking for a similar
+                # file
+                for item in os.listdir(os.path.dirname(starting_path)):
+                    underscore_item, count = re.subn("[" + string.punctuation + "]", "_", item)
+
+                    if underscore_item == os.path.basename(test_path):
+                        test_path = os.path.join(os.path.dirname(starting_path), item)
+                        break
+
+            if not is_file_or_dir(test_path):
+                append = True
+
+            # It is possible that there is another directory that is named
+            # without an underscore.
+            elif index + 1 < len(loc_split) and os.path.isdir(test_path):
+
+                next_test_path = os.path.join(test_path, loc_split[index + 1])
+                added_path = test_path + "_" + loc_split[index + 1]
+                if not is_file_or_dir(next_test_path) and is_file_or_dir(added_path):
+                    append = True
+            
+            starting_path = test_path
 
         location = starting_path
-
-        # Change the extension to .exe
-        location = os.path.splitext(location)[0] + ".exe"
-
-        assert os.path.isfile(location)
+        if not os.path.isfile(location):
+            pass
+        
+        assert(os.path.isfile(location))
 
         self.unique_name = "%s_%s_%s_%s" % (test["name"],
                                             host_os,
@@ -140,7 +169,11 @@ class DebugEnv:
         assert os.path.isdir(repro_location)
 
         self.path = os.path.join(repro_location, self.path)
-        self.__add_configuration_to_launch_json__()
+        
+        exe_location = os.path.splitext(starting_path)[0] + ".exe"
+        if os.path.isfile(exe_location):
+            self.exe_location = exe_location
+            self.__add_configuration_to_launch_json__()
 
     def __add_configuration_to_launch_json__(self):
         """ Add to or create a launch.json with debug information for the test
@@ -211,7 +244,7 @@ class DebugEnv:
             "type": dbg_type,
             "request": "launch",
             "program": core_run,
-            "args": [self.test_location],
+            "args": [self.exe_location],
             "stopAtEntry": False,
             "cwd": os.path.join("${workspaceFolder}", "..", ".."),
             "environment": environment,
@@ -285,16 +318,51 @@ echo Core_Root is set to: "%%CORE_ROOT%%"
                 wrapper += "set %s=%s%s" % (key, value, line_sep)
 
         wrapper += "%s" % line_sep
-        wrapper += "echo \"%%CORE_ROOT%%\"\\corerun %s%s" % (self.test_location, line_sep) 
-        wrapper += "\"%%CORE_ROOT%%\"\\corerun %s%s" % (self.test_location, line_sep) 
+        wrapper += "echo call %s%s" % (self.test_location, line_sep) 
+        wrapper += "call %s%s" % (self.test_location, line_sep) 
 
         self.wrapper = wrapper
     
     def __create_bash_wrapper__(self):
-        """ Create the unix bash wrapper
+        """ Create a unix bash wrapper
         """
+    
+        wrapper = \
+"""
+#============================================================================
+# Repro environment for %s
+# 
+# Notes:
+#
+# This wrapper is automatically generated by runtest.py. It includes the
+# necessary environment to reproduce a failure that occured during running
+# the tests.
+#
+# In order to change how this wrapper is generated, see
+# runtest.py:__create_batch_wrapper__(). Please note that it is possible
+# to recreate this file by running tests/runtest.py --analyze_results_only
+# with the appropriate environment set and the correct arch and build_type
+# passed.
+#
+# ============================================================================
 
-        pass
+# Set Core_Root if it has not been already set.
+if [ -z ${CORE_ROOT} ]; then echo "CORE_ROOT is set to $CORE_ROOT"; else export CORE_ROOT=%s; fi
+
+""" % (self.unique_name, self.core_root)
+
+        line_sep = os.linesep
+
+        if self.env is not None:
+            for key, value in self.env:
+                wrapper += "echo export %s=%s%s" % (key, value, line_sep)
+                wrapper += "export %s=%s%s" % (key, value, line_sep)
+
+        wrapper += "%s" % line_sep
+        wrapper += "echo bash %s%s" % (self.test_location, line_sep) 
+        wrapper += "bash %s%s" % (self.test_location, line_sep) 
+
+        self.wrapper = wrapper
 
     def write_repro(self):
         """ Write out the wrapper
@@ -384,10 +452,10 @@ REM Temporary test env for test run.
             print contents
             print
 
-            func(test_env.name)
+            return func(test_env.name)
 
     else:
-        func(None)
+        return func(None)
 
 def get_environment():
     """ Get all the COMPlus_* Environment variables
@@ -432,6 +500,7 @@ def call_msbuild(coreclr_repo_location,
         the test_env, should it need to be passed.
 
     """
+    global g_verbose
 
     common_msbuild_arguments = ["/nologo", "/nodeReuse:false", "/p:Platform=%s" % arch]
 
@@ -458,8 +527,10 @@ def call_msbuild(coreclr_repo_location,
     msbuild_log_args = ["/fileloggerparameters:\"Verbosity=normal;LogFile=%s\"" % build_log,
                         "/fileloggerparameters1:\"WarningsOnly;LogFile=%s\"" % wrn_log,
                         "/fileloggerparameters2:\"ErrorsOnly;LogFile=%s\"" % err_log,
-                        "/consoleloggerparameters:Summary",
-                        "/verbosity:diag"]
+                        "/consoleloggerparameters:Summary"]
+
+    if g_verbose:
+        msbuild_log_args += ["/verbosity:diag"]
 
     command += msbuild_log_args
 
@@ -472,7 +543,7 @@ def call_msbuild(coreclr_repo_location,
     proc = subprocess.Popen(command)
     proc.communicate()
 
-    sys.exit(proc.returncode)
+    return proc.returncode
 
 def copy_native_test_bin_to_core_root(host_os, path, core_root):
     """ Recursively copy all files to core_root
@@ -525,7 +596,7 @@ def run_tests(host_os,
         copy_native_test_bin_to_core_root(host_os, os.path.join(test_native_bin_location, "src"), core_root)
 
     # Setup the dotnetcli location
-    dotnetcli_location = os.path.join(coreclr_repo_location, "Tools", "dotnetcli", "dotnet.exe")
+    dotnetcli_location = os.path.join(coreclr_repo_location, "Tools", "dotnetcli", "dotnet%s" % (".exe" if host_os == "Windows_NT" else ""))
 
     # Setup the environment
     if is_long_gc:
@@ -550,12 +621,12 @@ def run_tests(host_os,
     os.environ["CORE_ROOT"] = core_root
 
     # Call msbuild.
-    call_msbuild(coreclr_repo_location,
-                 dotnetcli_location,
-                 host_os,
-                 arch,
-                 build_type,
-                 sequential=run_sequential)
+    return call_msbuild(coreclr_repo_location,
+                        dotnetcli_location,
+                        host_os,
+                        arch,
+                        build_type,
+                        sequential=run_sequential)
 
 def setup_args(args):
     """ Setup the args based on the argparser obj
@@ -680,7 +751,7 @@ def setup_tools(host_os, coreclr_repo_location):
 
     is_windows = host_os == "Windows_NT"
 
-    dotnetcli_location = os.path.join(coreclr_repo_location, "Tools", "dotnetcli", "dotnet.exe")
+    dotnetcli_location = os.path.join(coreclr_repo_location, "Tools", "dotnetcli", "dotnet%s" % (".exe" if host_os == "Windows_NT" else ""))
 
     if os.path.isfile(dotnetcli_location):
         setup = True
@@ -892,6 +963,9 @@ def create_repro(host_os, arch, build_type, env, core_root, test_location, corec
 ################################################################################
 
 def main(args):
+    global g_verbose
+    g_verbose = args.verbose
+
     host_os, arch, build_type, coreclr_repo_location, core_root, test_location, test_native_bin_location = setup_args(args)
 
     env = None
