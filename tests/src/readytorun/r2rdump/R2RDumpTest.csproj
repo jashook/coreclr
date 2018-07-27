@@ -15,6 +15,9 @@
     <BashCoreClrDir>../../../../../../</BashCoreClrDir>
     <BashR2RDumpCommand>$(BashCoreClrDir)bin/Product/$(BuildOS).$(BuildArch).$(BuildType)/netcoreapp2.0/R2RDump.dll</BashR2RDumpCommand>
     <BashDotnetToolCommand>$(BashCoreClrDir)Tools/dotnetcli/dotnet</BashDotnetToolCommand>
+
+    <!-- Test unsupported outside of windows -->
+    <DisableProjectBuild Condition="'$(TargetsUnix)' == 'true'">true</DisableProjectBuild>
   </PropertyGroup>
   <!-- Default configurations to help VS understand the configurations -->
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x64'">
