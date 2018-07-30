@@ -269,8 +269,8 @@ $(BashLinkerTestCleanupCmds)
 $(BashCLRTestLaunchCmds)
 echo export CDPATH="$%28dirname "$0")"
 export CDPATH="$%28dirname "$0")"
-echo /bin/sh -c  $(InputAssemblyName) 
-/bin/sh -c $(InputAssemblyName)
+echo /bin/sh $(InputAssemblyName) 
+/bin/sh $(InputAssemblyName)
 CLRTestExitCode=$?
 CLRTestExpectedExitCode=0
       ]]></BashCLRTestLaunchCmds>
