@@ -36,11 +36,12 @@ from sys import platform as _platform
 # Argument Parser
 ################################################################################
 
-description = ("""Simple script that essentially sets up and runs either runtest.cmd
-                  or runtests.sh. This wrapper is necessary to do all the setup work.
-
-                  Note that this is required because there is not a unified test runner
-                  for coreclr.""")
+description = ("""Universal script to setup and run the xunit console runner.
+                  The script relies on runtest.proj and the bash and batch
+                  wrappers. All test excludes will also come from 
+                  issues.targets. If there is a jit stress or gc stress
+                  exclude, please add GCStressIncompatible or 
+                  JitOptimizationSensitive to the test's ilproj or csproj.""")
 
 # Use either - or / to designate switches.
 parser = argparse.ArgumentParser(description=description, prefix_chars='-/')
@@ -49,7 +50,7 @@ parser.add_argument("-arch", dest="arch", nargs='?', default="x64")
 parser.add_argument("-build_type", dest="build_type", nargs='?', default="Debug")
 parser.add_argument("-test_location", dest="test_location", nargs="?", default=None)
 parser.add_argument("-core_root", dest="core_root", nargs='?', default=None)
-parser.add_argument("-coreclr_repo_location", dest="coreclr_repo_location", default=os.getcwd())
+parser.add_argument("-coreclr_repo_location", dest="coreclr_repo_location", default=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 parser.add_argument("--analyze_results_only", dest="analyze_results_only", action="store_true", default=False)
 parser.add_argument("--verbose", dest="verbose", action="store_true", default=False)
 
@@ -111,8 +112,10 @@ class DebugEnv:
         else:
             self.path = self.unique_name + ".sh"
 
-        repro_location = os.path.join(coreclr_repo_location, "bin", "repro")
+        repro_location = os.path.join(coreclr_repo_location, "bin", "repro", "%s.%s.%s" % (self.host_os, arch, build_type))
         assert os.path.isdir(repro_location)
+
+        self.repro_location = repro_location
 
         self.path = os.path.join(repro_location, self.path)
         
@@ -128,7 +131,7 @@ class DebugEnv:
             This will allow debugging using the cpp extension in vscode.
         """
 
-        repro_location = os.path.join(self.coreclr_repo_location, "bin", "repro")
+        repro_location = self.repro_location
         assert os.path.isdir(repro_location)
 
         vscode_dir = os.path.join(repro_location, ".vscode")
@@ -817,6 +820,9 @@ def parse_test_results(host_os, arch, build_type, coreclr_repo_location, test_lo
         test_location           : path to coreclr tests
 
     """
+    logs_dir = os.path.join(coreclr_repo_location, "bin", "Logs")
+    log_path = os.path.join(logs_dir, "TestRunResults_%s_%s_%s" % (host_os, arch, build_type))
+    print "Parsing test results from (%s)" % log_path
 
     test_run_location = os.path.join(coreclr_repo_location, "bin", "Logs", "testRun.xml")
 
@@ -987,10 +993,12 @@ def create_repro(host_os, arch, build_type, env, core_root, coreclr_repo_locatio
     bin_location = os.path.join(coreclr_repo_location, "bin")
     assert os.path.isdir(bin_location)
 
-    repro_location = os.path.join(bin_location, "repro")
-    if not os.path.isdir(repro_location):
-        print "mkdir %s" % repro_location
-        os.mkdir(repro_location)
+    repro_location = os.path.join(bin_location, "repro", "%s.%s.%s" % (host_os, arch, build_type))
+    if os.path.isdir(repro_location):
+        shutil.rmtree(repro_location)
+    
+    print "mkdir %s" % repro_location
+    os.mkdirs(repro_location)
 
     assert os.path.isdir(repro_location)
 
@@ -1020,19 +1028,18 @@ def main(args):
 
         env = get_environment()
         ret_code = create_and_use_test_env(host_os, 
-                                        env, 
-                                        lambda path: run_tests(host_os, 
-                                                                arch,
-                                                                build_type,
-                                                                core_root, 
-                                                                coreclr_repo_location,
-                                                                test_location, 
-                                                                test_native_bin_location, 
-                                                                test_env=path))
+                                           env, 
+                                           lambda path: run_tests(host_os, 
+                                                                  arch,
+                                                                  build_type,
+                                                                  core_root, 
+                                                                  coreclr_repo_location,
+                                                                  test_location, 
+                                                                  test_native_bin_location, 
+                                                                  test_env=path))
 
         print "Test run finished."
 
-    print "Parsing test results..."
     tests = parse_test_results(host_os, arch, build_type, coreclr_repo_location, test_location)
 
     if tests is not None:
