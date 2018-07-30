@@ -347,9 +347,6 @@
         <ExcludeList Include="$(XunitTestBinBase)/tracing/eventsourcetrace/eventsourcetrace/*">
             <Issue>15494</Issue>
         </ExcludeList>
-        <ExcludeList Include="$(XunitTestBinBase)/GC/Regressions/v2.0-rtm/494226/494226/*">
-            <Issue>15016</Issue>
-        </ExcludeList>
         <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-JIT/v2.1/DDB/B168384/LdfldaHack/*">
             <Issue>15016</Issue>
         </ExcludeList>
@@ -369,10 +366,6 @@
         <ExcludeList Include="$(XunitTestBinBase)/JIT/opt/Tailcall/TailcallVerifyWithPrefix/TailcallVerifyWithPrefix*">
             <Issue>2420</Issue>
         </ExcludeList>
-    </ItemGroup>
-
-    <!-- The following are ARM64_altjit crossgen failures. For x64_arm64_altjit buildArm==x64. -->
-    <ItemGroup Condition="'$(XunitTestBinBase)' != '' and '$(BuildArch)' == 'x64'">
     </ItemGroup>
 
     <!-- The following are x64 Unix failures. -->
@@ -403,9 +396,6 @@
             <Issue>Varargs not supported on this platform</Issue>
         </ExcludeList>
         <ExcludeList Include="$(XunitTestBinBase)/JIT/Methodical/refany/_speed_relstress3/*">
-            <Issue>Varargs not supported on this platform</Issue>
-        </ExcludeList>
-        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-JIT/V1-M11-Beta1/b41391/*">
             <Issue>Varargs not supported on this platform</Issue>
         </ExcludeList>
         <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-JIT/V1-M11-Beta1/b41391/*">
@@ -447,7 +437,8 @@
     </ItemGroup>
 
     <!-- Tests that need to be triaged for vararg usage as that is not supported -->
-    <ItemGroup Condition="'$(XunitTestBinBase)' != ''">
+    <!-- Note these will only be excluded for unix platforms -->
+    <ItemGroup Condition="'$(XunitTestBinBase)' != '' and '$(TargetsWindows)' != 'true' ">
         <ExcludeList Include="$(XunitTestBinBase)/JIT/Directed/PREFIX/unaligned/1/arglist/arglist*">
             <Issue>needs triage</Issue>
         </ExcludeList>
