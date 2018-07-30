@@ -1,12 +1,5 @@
 <?xml version="1.0" ?>
 <Project DefaultTargets = "GetListOfTestCmds" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
-
-    <Target Name="Print">
-        <Message Text="'$(XunitTestBinBase)': '$(XunitTestBinBase)'" Importance="high"/>
-        <Message Text="'$(BuildArch)': '$(BuildArch)'" Importance="high"/> 
-        <Message Text="'$(BuildTestsAgainstPackages)': '$(BuildTestsAgainstPackages)'" Importance="high"/>
-    </Target>
-
     <!-- All OS/Arch common excludes -->
     <ItemGroup Condition="'$(XunitTestBinBase)' != ''">
         <ExcludeList Include="$(XunitTestBinBase)/GC/Coverage/271010/**">
@@ -91,7 +84,7 @@
     </ItemGroup>
 
     <!-- Windows x86 specific excludes -->
-    <ItemGroup Condition="'$(XunitTestBinBase)' != '' and '$(BuildArch)' == 'x86'">
+    <ItemGroup Condition="'$(XunitTestBinBase)' != '' and '$(BuildArch)' == 'x86' and '$(TargetsWindows)' == 'true'">
         <ExcludeList Include="$(XunitTestBinBase)/GC/LargeMemory/Allocation/largeexceptiontest/largeexceptiontest*">
             <Issue>3392, test is useful to have because it can be run manually when making changes to the GC that can have effects in OOM scenarios, but not appropriate to run on our current test infrastructure.</Issue>
         </ExcludeList>
@@ -109,6 +102,265 @@
         </ExcludeList>
         <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/JitBlue/DevDiv_255294/DevDiv_255294/DevDiv_255294*">
             <Issue>11469, The test causes OutOfMemory exception in crossgen mode.</Issue> 
+        </ExcludeList>
+    </ItemGroup>
+
+    <!-- Windows arm64 specific excludes -->
+    <ItemGroup Condition="'$(XunitTestBinBase)' != '' and '$(BuildArch)' == 'arm64' and '$(TargetsWindows)' == 'true'">
+        <ExcludeList Include="$(XunitTestBinBase)/GC/Features/HeapExpansion/bestfit-threaded/*">
+            <Issue>15016</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/GC/Regressions/v2.0-rtm/494226/494226/*">
+            <Issue>15016</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/GC/Scenarios/LeakWheel/leakwheel/*">
+            <Issue>15016</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i60/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-JIT/V2.0-Beta2/b409748/b409748/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-JIT/V1-M09.5-PDC/b32374/b32374/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Directed/PREFIX/unaligned/2/arglist/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Methodical/refany/_il_relseq/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i32/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-JIT/V1-M09.5-PDC/b28901/b28901/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i10/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-JIT/V1-M09.5-PDC/b30838/b30838/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Directed/PREFIX/volatile/1/arglist/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-JIT/V1-M09.5-PDC/b26324/b26324a/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i72/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i51/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Directed/PREFIX/unaligned/1/arglist/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i82/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-JIT/V1-M09.5-PDC/b16423/b16423/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-EJIT/V1-M12-Beta2/b26323/b26323/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-JIT/V1-M12-Beta2/b37646/b37646/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i52/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-JIT/V1-M12-Beta2/b31746/b31746/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Methodical/Coverage/arglist_pos/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i03/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i70/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i53/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-JIT/V1-M11-Beta1/b37598/b37598/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i71/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-JIT/V1-M11-Beta1/b46867/b46867/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i83/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>        
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-JIT/V1-M13-RTM/b91248/b91248/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i33/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i63/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i02/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-JIT/V1-M11-Beta1/b36472/b36472/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i31/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/gc/misc/funclet/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>        
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-JIT/V1-M09.5-PDC/b26324/b26324b/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-JIT/V1-M11-Beta1/b41391/b41391/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>        
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i00/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i81/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-JIT/V1-M12-Beta2/b31745/b31745/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i73/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-JIT/V1-M09.5-PDC/b30864/b30864/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i11/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-JIT/V1-M12-Beta2/b41852/b41852/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i01/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Directed/PREFIX/unaligned/4/arglist/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-JIT/V1-M11-Beta1/b35784/b35784/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Methodical/refany/_il_dbgseq/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i61/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i13/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i30/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i62/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i50/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-JIT/V1-M13-RTM/b88793/b88793/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i12/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/mcc/interop/mcc_i80/*">
+            <Issue>Uses native varargs</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/opt/Tailcall/TailcallVerifyWithPrefix/*">
+            <Issue>Uses illagal il tailcall pop ret</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/Loader/classloader/DefaultInterfaceMethods/sharedgenerics/sharedgenerics_r/*">
+            <Issue>9565</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/GC/Regressions/dev10bugs/536168/536168/*">
+            <Issue>11534</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/Exceptions/ForeignThread/ForeignThreadExceptions/*">
+            <Issue>10636</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/Loader/classloader/DefaultInterfaceMethods/diamondshape/diamondshape_d/*">
+            <Issue>9565</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/baseservices/exceptions/stacktrace/Tier1StackTrace/*">
+            <Issue>9565</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/Loader/classloader/DefaultInterfaceMethods/simple/simple/*">
+            <Issue>9565</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/JitBlue/DevDiv_359736/DevDiv_359736_ro/*">
+            <Issue>8648</Issue>
+        </ExcludeList>        
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/JitBlue/DevDiv_359736/DevDiv_359736_do/*">
+            <Issue>8648</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/Loader/classloader/DefaultInterfaceMethods/valuetypes/valuetypes/*">
+            <Issue>9565</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/JitBlue/GitHub_11408/GitHub_11408/*">
+            <Issue>11408</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/tracing/tracevalidation/tracelogging/tracelogging/*">
+            <Issue>15494</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/reflection/Tier1Collectible/Tier1Collectible/*">
+            <Issue>9565</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/Regressions/coreclr/15650/interfacecctor/*">
+            <Issue>9565</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/Regressions/coreclr/15827/nonvirtualcall/*">
+            <Issue>9565</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/Loader/classloader/DefaultInterfaceMethods/sharedgenerics/sharedgenerics_d/*">
+            <Issue>9565</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/Loader/classloader/DefaultInterfaceMethods/methodimpl/methodimpl/*">
+            <Issue>9565</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/Regressions/coreclr/16064/methodimpl/*">
+            <Issue>9565</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/reflection/DefaultInterfaceMethods/InvokeConsumer/*">
+            <Issue>9565</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/HardwareIntrinsics/Arm64/Simd/*">
+            <Issue>18895</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/reflection/DefaultInterfaceMethods/Emit/*">
+            <Issue>9565</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/tracing/eventsourcetrace/eventsourcetrace/*">
+            <Issue>15494</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/GC/Regressions/v2.0-rtm/494226/494226/*">
+            <Issue>15016</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/CLR-x86-JIT/v2.1/DDB/B168384/LdfldaHack/*">
+            <Issue>15016</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/Regressions/coreclr/15241/genericcontext/*">
+            <Issue>9565</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/Loader/classloader/DefaultInterfaceMethods/diamondshape/diamondshape_r/*">
+            <Issue>9565</Issue>
         </ExcludeList>
     </ItemGroup>
 
@@ -393,6 +645,11 @@
         <ExcludeList Include="$(XunitTestBinBase)/JIT/Performance/CodeQuality/BenchmarksGame/reverse-complement/reverse-complement-6/reverse-complement-6*">
             <Issue>9314</Issue>
         </ExcludeList>
+
+        <!-- Disable COM tests since they don't properly run on Windows.Nano and at present there is no way to special case that OS flavor. -->
+        <ExcludeList Include="$(XunitTestBinBase)/Interop/COM/NETClients/Primitives/NETClientPrimitives/*">
+            <Issue>Fails on Windows.Nano</Issue>
+        </ExcludeList>
     </ItemGroup>
 
     <!-- The following are tests that fail on non-Windows, which we must not run when building against packages -->
@@ -509,7 +766,7 @@
         <ExcludeList Include="$(XunitTestBinBase)/Interop/StructMarshalling/PInvoke/MarshalStructAsLayoutExp/MarshalStructAsLayoutExp*">
             <Issue>needs triage</Issue>
         </ExcludeList>
-        <ExcludeList Include="$(XunitTestBinBase)\Interop\COM\NETClients\Primitives\NETClientPrimitives\NETClientPrimitives.*">
+        <ExcludeList Include="$(XunitTestBinBase)/Interop/COM/NETClients/Primitives/NETClientPrimitives/NETClientPrimitives.*">
             <Issue>by design Windows only</Issue>
         </ExcludeList>
         <ExcludeList Include="$(XunitTestBinBase)/JIT/Directed/IL/PInvokeTail/PInvokeTail/PInvokeTail*">
