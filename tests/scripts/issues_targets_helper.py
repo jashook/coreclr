@@ -61,23 +61,49 @@ class ExcludeList:
 
             arch = "any"
             host_os = "any"
+            build_against_packages = False
 
             conditions = conditions.split("and")
             for condition in conditions:
                 if "$(BuildArch)" in condition:
                     arch = condition.split("==")[1]
-                    arch = re.sub("[" + string.punctuation + "]", "", arch)
+                    arch = re.sub("[" + " " + string.punctuation + "]", "", arch)
 
                 if "$(TargetsWindows)" in condition:
                     host_os = "windows" if "==" in condition else "unix"
+                
+                if "$(BuildTestsAgainstPackages)" in condition:
+                    build_against_packages = True if "==" in condition else False
 
-            self.exclude_list[host_os] = defaultdict(lambda: None)
-            self.exclude_list[host_os][arch] = defaultdict(lambda: None)
+            if self.exclude_list[host_os] is None:
+                self.exclude_list[host_os] = defaultdict(lambda: None)
+
+            if self.exclude_list[host_os][arch] is None:
+                self.exclude_list[host_os][arch] = defaultdict(lambda: None)
+            
+            if self.exclude_list[host_os][arch][build_against_packages] is None:
+                self.exclude_list[host_os][arch][build_against_packages] = defaultdict(lambda: None)
 
             exclude_list = []
             for exclude_element in exclude_list_element:
                 issue = exclude_element[0].text
-                self.exclude_list[host_os][arch][exclude_element.attrib["Include"]] = issue
+                
+                if self.exclude_list[host_os][arch][build_against_packages][exclude_element.attrib["Include"]] is not None:
+                    pass
+                self.exclude_list[host_os][arch][build_against_packages][exclude_element.attrib["Include"]] = issue
+
+    def write(self, exclude_list_location):
+        """ Write out the exclude list with any changes.
+        """
+
+        project = xml.etree.ElementTree.Element("Project")
+        
+
+        all_excludes = [(key, self.exclude_list["any"]["any"][key]) for key in self.exclude_list["any"]["any"]]
+        all_excludes.sort(lambda x, y: x[1] < y[1])
+
+        pass
+
 
 ################################################################################
 # Main
@@ -87,6 +113,7 @@ def main(args):
     issues_targets_location = os.path.join(args.coreclr_repo_location, "tests", "issues.targets")
 
     exclude_list = ExcludeList(issues_targets_location)
+    exclude_list.write(issues_targets_location + ".new")
     pass
 
 ################################################################################
