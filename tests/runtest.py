@@ -1,12 +1,36 @@
 #!/usr/bin/env python
-################################################################################
-################################################################################
 #
-# Module: runtest.py
+## Licensed to the .NET Foundation under one or more agreements.
+## The .NET Foundation licenses this file to you under the MIT license.
+## See the LICENSE file in the project root for more information.
+#
+##
+# Title               :runtest.py
 #
 # Notes:
 #  
-# Universal script to setup and run the xunit msbuild test runner.
+# Universal script to setup and run the xunit console runner. The script relies 
+# on runtest.proj and the bash and batch wrappers. All test excludes will also 
+# come from issues.targets. If there is a jit stress or gc stress exclude, 
+# please add GCStressIncompatible or JitOptimizationSensitive to the test's 
+# ilproj or csproj.
+#
+# The xunit runner currently relies on tests being built on the same host as the
+# target platform. This requires all tests run on linux x64 to be built by the
+# same platform and arch. If this is not done, the tests will run correctly;
+# however, excpect failures due to incorrect exclusions in the xunit 
+# wrappers setup at build time.
+#
+# Note that for linux targets the native componants to the tests are still built
+# by the product build. This requires all native components to be either copied
+# into the Core_Root directory or the test's managed directory. The later is
+# prone to failure; however, copying into the Core_Root directory may create
+# naming conflicts.
+#
+# If you are running tests on a different target than the host that built, the
+# native tests components must be copied from:
+# bin/obj/<Host>.<Arch>.<BuildType/tests to the target. If the location is not
+# standard please pass the -test_native_bin_location flag to the script.
 #
 # Use the instructions here:
 #    https://github.com/dotnet/coreclr/blob/master/Documentation/building/windows-test-instructions.md 
@@ -36,12 +60,28 @@ from sys import platform as _platform
 # Argument Parser
 ################################################################################
 
-description = ("""Universal script to setup and run the xunit console runner.
-                  The script relies on runtest.proj and the bash and batch
-                  wrappers. All test excludes will also come from 
-                  issues.targets. If there is a jit stress or gc stress
-                  exclude, please add GCStressIncompatible or 
-                  JitOptimizationSensitive to the test's ilproj or csproj.""")
+description = ("""Universal script to setup and run the xunit console runner. The script relies 
+on runtest.proj and the bash and batch wrappers. All test excludes will also 
+come from issues.targets. If there is a jit stress or gc stress exclude, 
+please add GCStressIncompatible or JitOptimizationSensitive to the test's 
+ilproj or csproj.
+
+The xunit runner currently relies on tests being built on the same host as the
+target platform. This requires all tests run on linux x64 to be built by the
+same platform and arch. If this is not done, the tests will run correctly;
+however, excpect failures due to incorrect exclusions in the xunit 
+wrappers setup at build time.
+
+Note that for linux targets the native componants to the tests are still built
+by the product build. This requires all native components to be either copied
+into the Core_Root directory or the test's managed directory. The later is
+prone to failure; however, copying into the Core_Root directory may create
+naming conflicts.
+
+If you are running tests on a different target than the host that built, the
+native tests components must be copied from:
+bin/obj/<Host>.<Arch>.<BuildType/tests to the target. If the location is not
+standard please pass the -test_native_bin_location flag to the script.""")
 
 # Use either - or / to designate switches.
 parser = argparse.ArgumentParser(description=description, prefix_chars='-/')
@@ -980,10 +1020,6 @@ def create_repro(host_os, arch, build_type, env, core_root, coreclr_repo_locatio
                                         : xunit
     
     """
-
-    print
-    print "Creating repo files..."
-
     assert tests is not None
 
     failed_tests = [tests[item] for item in tests if tests[item]["failed"] == "1"]
@@ -999,6 +1035,9 @@ def create_repro(host_os, arch, build_type, env, core_root, coreclr_repo_locatio
     
     print "mkdir %s" % repro_location
     os.mkdirs(repro_location)
+
+    print
+    print "Creating repo files, they can be found at: %s" % repro_location
 
     assert os.path.isdir(repro_location)
 
