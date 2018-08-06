@@ -94,6 +94,9 @@ parser.add_argument("-coreclr_repo_location", dest="coreclr_repo_location", defa
 parser.add_argument("--analyze_results_only", dest="analyze_results_only", action="store_true", default=False)
 parser.add_argument("--verbose", dest="verbose", action="store_true", default=False)
 
+# Optional arguments which change execution.
+parser.add_argument("--il_link", dest="il_link", action="store_true", default=False)
+
 # Only used on Unix
 parser.add_argument("-test_native_bin_location", dest="test_native_bin_location", nargs='?', default=None)
 
@@ -472,6 +475,7 @@ def call_msbuild(coreclr_repo_location,
                  host_os,
                  arch,
                  build_type, 
+                 is_illink=False,
                  sequential=False):
     """ Call msbuild to run the tests built.
 
@@ -507,6 +511,9 @@ def call_msbuild(coreclr_repo_location,
                  os.path.join(coreclr_repo_location, "tests", "runtest.proj"),
                  "/p:Runtests=true",
                  "/clp:showcommandline"]
+
+    if is_illink:
+        command += ["/p:RunTestsViaIllink=true"]
 
     log_path = os.path.join(logs_dir, "TestRunResults_%s_%s_%s" % (host_os, arch, build_type))
     build_log = log_path + ".log"
@@ -566,6 +573,7 @@ def run_tests(host_os,
               is_gcsimulator=False,
               is_jitdasm=False,
               is_ilasm=False,
+              is_illink=False,
               run_sequential=False):
     """ Run the coreclr tests
     
@@ -618,6 +626,7 @@ def run_tests(host_os,
                         host_os,
                         arch,
                         build_type,
+                        is_illink=is_illink,
                         sequential=run_sequential)
 
 def setup_args(args):
@@ -762,6 +771,17 @@ def setup_tools(host_os, coreclr_repo_location):
         setup = True
 
     return setup
+
+def setup_core_root(prodcut_dir, core_root):
+    """ Setup the core root
+
+    Args:
+        product_dir(str): Produict location
+        core_root(str)  : Location for core_root
+
+    """
+
+
 
 def find_test_from_name(host_os, test_location, test_name):
     """ Given a test's name return the location on disk
@@ -1065,6 +1085,11 @@ def main(args):
         # Setup the tools for the repo.
         setup_tools(host_os, coreclr_repo_location)
 
+        product_location = os.path.join(coreclr_repo_location, "bin", "Product", "%s.%s.%s" % (host_os, arch, build_type))
+        setup_core_root(product_location, core_root)
+
+        do_il_link = args.il_link
+
         env = get_environment()
         ret_code = create_and_use_test_env(host_os, 
                                            env, 
@@ -1074,7 +1099,8 @@ def main(args):
                                                                   core_root, 
                                                                   coreclr_repo_location,
                                                                   test_location, 
-                                                                  test_native_bin_location, 
+                                                                  test_native_bin_location,
+                                                                  is_illink=do_il_link, 
                                                                   test_env=path))
 
         print "Test run finished."
