@@ -42,12 +42,14 @@
 import argparse
 import datetime
 import json
+import math
 import os
 import platform
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import re
 import string
 
@@ -95,7 +97,16 @@ parser.add_argument("--analyze_results_only", dest="analyze_results_only", actio
 parser.add_argument("--verbose", dest="verbose", action="store_true", default=False)
 
 # Optional arguments which change execution.
+
+# Rid is used only for restoring packages. This is a unspecified and undocumented
+# environment varialbe that needs to be passed to build.proj. Do not use this
+# unless you are attempting to target package restoration for another host/arch/os
+parser.add_argument("-rid", dest="rid", nargs="?", default=None)
+
 parser.add_argument("--il_link", dest="il_link", action="store_true", default=False)
+parser.add_argument("--build_test_wrappers", dest="build_test_wrappers", action="store_true", default=False)
+parser.add_argument("--generate_layout", dest="generate_layout", action="store_true", default=False)
+parser.add_argument("--generate_layout_only", dest="generate_layout_only", action="store_true", default=False)
 
 # Only used on Unix
 parser.add_argument("-test_native_bin_location", dest="test_native_bin_location", nargs='?', default=None)
@@ -587,11 +598,6 @@ def run_tests(host_os,
         test_native_bin_location    : Native test components, None and windows.
         test_env(str)               : path to the test_env to be used
     """
-
-    # Copy all the native libs to core_root
-    if host_os != "Windows_NT":
-        copy_native_test_bin_to_core_root(host_os, os.path.join(test_native_bin_location, "src"), core_root)
-
     # Setup the dotnetcli location
     dotnetcli_location = os.path.join(coreclr_repo_location, "Tools", "dotnetcli", "dotnet%s" % (".exe" if host_os == "Windows_NT" else ""))
 
@@ -639,6 +645,9 @@ def setup_args(args):
         If there is no core_root, or test location passed, create a default
         location using the build type and the arch.
     """
+
+    if args.generate_layout_only:
+        args.generate_layout = True
 
     host_os = None
     arch = args.arch.lower()
@@ -716,12 +725,16 @@ def setup_args(args):
             print "Core_Root: %s" % core_root
             print
 
-        else:
+        elif args.generate_layout is False:
             # CORE_ROOT has not been setup correctly.
             print "Error, unable to find CORE_ROOT at %s" % default_core_root
-            print "Please run build-test.cmd %s %s generatelayoutonly" % (arch, build_type)
+            print "Please run runtest.py with --generate_layout specified."
 
             sys.exit(1)
+
+        else:
+            print "--generate_layout passed. Core_Root will be popualted at: %s" % default_core_root
+            core_root = default_core_root
 
     if host_os != "Windows_NT":
         if test_native_bin_location is None:
@@ -772,16 +785,260 @@ def setup_tools(host_os, coreclr_repo_location):
 
     return setup
 
-def setup_core_root(prodcut_dir, core_root):
+def setup_core_root(host_os, 
+                    arch, 
+                    build_type, 
+                    coreclr_repo_location, 
+                    test_native_bin_location,
+                    product_location,
+                    core_root,
+                    is_corefx=False):
     """ Setup the core root
 
     Args:
-        product_dir(str): Produict location
-        core_root(str)  : Location for core_root
+        host_os(str)                : os
+        arch(str)                   : architecture
+        build_type(str)             : build configuration
+        coreclr_repo_location(str)  : coreclr repo location
+        product_location(str)       : Produit location
+        core_root(str)              : Location for core_root
+
+    Optional Args:
+        is_corefx(Bool)             : Pass if planning on running corex
+                                    : tests
 
     """
 
+    # Create core_root if it does not exist
+    if not os.path.isdir(core_root):
+        os.mkdir(core_root)
 
+    # Setup the dotnetcli location
+    dotnetcli_location = os.path.join(coreclr_repo_location, "Tools", "dotnetcli", "dotnet%s" % (".exe" if host_os == "Windows_NT" else ""))
+
+    # Set global env variables.
+    os.environ["__BuildLogRootName"] = "Restore_Product"
+    os.environ["__DistroRid"] = "%s-%s" % ("OSX" if sys.platform == "darwin" else "linux", arch)
+
+    command = [os.path.join(coreclr_repo_location, "run.%s" % ("cmd" if host_os == "Windows_NT" else "sh")),
+               "build",
+               "-Project=%s" % os.path.join(coreclr_repo_location, "tests", "build.proj")]
+
+    logs_dir = os.path.join(coreclr_repo_location, "bin", "Logs")
+    if not os.path.isdir(logs_dir):
+        os.makedirs(logs_dir)
+
+    log_path = os.path.join(logs_dir, "Restore_Product%s_%s_%s" % (host_os, arch, build_type))
+    build_log = log_path + ".log"
+    wrn_log = log_path + ".wrn"
+    err_log = log_path + ".err"
+
+    msbuild_log_params = "/fileloggerparameters:\"Verbosity=normal;LogFile=%s\"" % build_log
+    msbuild_wrn_params = "/fileloggerparameters1:\"WarningsOnly;LogFile=%s\"" % wrn_log
+    msbuild_err_params = "/fileloggerparameters2:\"ErrorsOnly;LogFile=%s\"" % err_log
+
+    command += ["-MsBuildLog=%s" % msbuild_log_params,
+                "-MsBuildWrn=%s" % msbuild_wrn_params,
+                "-MsBuildErr=%s" % msbuild_err_params]
+
+    if host_os != "Windows_NT":
+        command = ["bash"] + command
+        command += ["-MsBuildEventLogging=\"/l:BinClashLogger,Tools/Microsoft.DotNet.Build.Tasks.dll;LogFile=binclash.log\""]
+
+    command += [ "-BatchRestorePackages",
+                 "-BuildType=%s" % build_type,
+                 "-BuildArch=%s" % arch,
+                 "-BuildOS=%s" % host_os]
+
+    print "Restoring packages..."
+    print " ".join(command)
+    proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc.communicate()
+
+    if proc.returncode == 1:
+        "Error test dependency resultion failed."
+        return False
+
+    os.environ["__BuildLogRootName"] = ""
+
+    def copy_tree(src, dest):
+        """ Simple copy from src to dest
+        """
+        assert os.path.isdir(src)
+        assert os.path.isdir(dest)
+
+        for item in os.listdir(src):
+            item = os.path.join(src, item)
+
+            if os.path.isfile(item):
+                shutil.copy2(item, dest)
+            else:
+                new_dir = os.path.join(dest, os.path.basename(item))
+                if os.path.isdir(new_dir):
+                    shutil.rmtree(new_dir)
+                
+                shutil.copytree(item, new_dir)
+
+    # Copy the product dir to the core_root directory
+    print
+    print "Copying Product Bin to Core_Root:"
+    print "cp -r %s/* %s" % (product_location, core_root)
+    copy_tree(product_location, core_root)
+    print "---------------------------------------------------------------------"
+    print
+
+    # Copy all the native libs to core_root
+    if host_os != "Windows_NT":
+        copy_native_test_bin_to_core_root(host_os, os.path.join(test_native_bin_location, "src"), core_root)
+
+    if is_corefx:
+        corefx_utility_setup = os.path.join(coreclr_repo_location,
+                                            "src",
+                                            "Common",
+                                            "CoreFX",
+                                            "TestFileSetup",
+                                            "CoreFX.TestUtils.TestFileSetup.csproj")
+
+        os.environ["__BuildLogRootName"] = "Tests_GenerateTestHost"
+        msbuild_command = [dotnetcli_location,
+                           "msbuild",
+                           os.path.join(coreclr_repo_location, "tests", "runtest.proj"),
+                           "/p:GenerateRuntimeLayout=true"]
+        proc = subprocess.Popen(msbuild_command)
+        proc.communicate()
+
+        if proc.returncode == 1:
+            "Error test dependency resultion failed."
+            return False
+
+        os.environ["__BuildLogRootName"] = ""
+
+        msbuild_command = [dotnetcli_location,
+                           "msbuild",
+                           "/t:Restore",
+                           corefx_utility_setup]
+
+        proc = subprocess.Popen(msbuild_command)
+        proc.communicate()
+
+        if proc.returncode == 1:
+            "Error test dependency resultion failed."
+            return False
+
+        corefx_logpath = os.path.join(coreclr_repo_location, 
+                                      "bin", 
+                                      "tests", 
+                                      "%s.%s.%s" % (host_os, arch, build_type), 
+                                      "CoreFX",
+                                      "CoreFXTestUtilities")
+
+        msbuild_command = [dotnetcli_location,
+                           "msbuild",
+                           "/p:Configuration=%s" % build_type,
+                           "/p:OSGroup=%s" % host_os,
+                           "/p:Platform=%s" % arch,
+                           "/p:OutputPath=%s" % corefx_logpath,
+                           corefx_utility_setup]
+
+        proc = subprocess.Popen(msbuild_command)
+        proc.communicate()
+
+        if proc.returncode == 1:
+            "Error test dependency resultion failed."
+            return False
+
+    return True
+
+def build_test_wrappers(host_os, 
+                        arch, 
+                        build_type, 
+                        coreclr_repo_location):
+    """ Build the coreclr test wrappers
+
+    Args:
+        host_os(str)                : os
+        arch(str)                   : architecture
+        build_type(str)             : build configuration
+        coreclr_repo_location(str)  : coreclr repo location
+
+    Notes:
+        Build the xUnit test wrappers. Note that this will have been done as a
+        part of build-test.cmd/sh. It is possible that the host has a different
+        set of dependencies from the target or the exclude list has changed
+        after building.
+
+    """
+    global g_verbose
+
+    # Setup the dotnetcli location
+    dotnetcli_location = os.path.join(coreclr_repo_location, "Tools", "dotnetcli", "dotnet%s" % (".exe" if host_os == "Windows_NT" else ""))
+
+    # Set global env variables.
+    os.environ["__BuildLogRootName"] = "Tests_XunitWrapper"
+
+    command = [dotnetcli_location,
+               "msbuild",
+               os.path.join(coreclr_repo_location, "tests", "runtest.proj"),
+               "/p:RestoreAdditionalProjectSources=https://dotnet.myget.org/F/dotnet-core/",
+               "/p:BuildWrappers=true",
+               "/p:TargetsWindows=%s" % ("true" if host_os == "Windows_NT" else "false")]
+
+    logs_dir = os.path.join(coreclr_repo_location, "bin", "Logs")
+    if not os.path.isdir(logs_dir):
+        os.makedirs(logs_dir)
+
+    log_path = os.path.join(logs_dir, "Tests_XunitWrapper%s_%s_%s" % (host_os, arch, build_type))
+    build_log = log_path + ".log"
+    wrn_log = log_path + ".wrn"
+    err_log = log_path + ".err"
+
+    command += ["/fileloggerparameters:\"Verbosity=normal;LogFile=%s\"" % build_log,
+                "/fileloggerparameters1:\"WarningsOnly;LogFile=%s\"" % wrn_log,
+                "/fileloggerparameters2:\"ErrorsOnly;LogFile=%s\"" % err_log,
+                "/consoleloggerparameters:Summary"]
+
+    if g_verbose:
+        command += ["/verbosity:diag"]
+
+    command += ["/p:__BuildOS=%s" % host_os,
+                "/p:__BuildArch=%s" % arch,
+                "/p:__BuildType=%s" % build_type,
+                "/p:__LogsDir=%s" % logs_dir]
+
+    print "Creating test wrappers..."
+    print " ".join(command)
+    proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    try:
+        expected_time_to_complete = 60*5 # 5 Minutes
+        estimated_time_running = 0
+
+        time_delta = 1
+
+        while True:
+            time_remaining = expected_time_to_complete - estimated_time_running
+            time_in_minutes = math.floor(time_remaining / 60)
+            remaining_seconds = time_remaining % 60
+
+            sys.stdout.write("\rEstimated time remaining: %d minutes %d seconds" % (time_in_minutes, remaining_seconds))
+            sys.stdout.flush()
+
+            time.sleep(time_delta)
+            estimated_time_running += time_delta
+
+            if estimated_time_running == expected_time_to_complete:
+                break
+            if proc.poll() is not None:
+                break
+
+    except KeyboardInterrupt:
+        proc.kill()
+
+    proc.communicate()
+
+    if proc.returncode == 1:
+        "Error test dependency resultion failed."
+        return False
 
 def find_test_from_name(host_os, test_location, test_name):
     """ Given a test's name return the location on disk
@@ -1086,7 +1343,19 @@ def main(args):
         setup_tools(host_os, coreclr_repo_location)
 
         product_location = os.path.join(coreclr_repo_location, "bin", "Product", "%s.%s.%s" % (host_os, arch, build_type))
-        setup_core_root(product_location, core_root)
+
+        if args.generate_layout or host_os != "Windows_NT":
+            success = setup_core_root(host_os, arch, build_type, coreclr_repo_location, test_native_bin_location, product_location, core_root)
+
+            if not success:
+                print "Error GenerateLayout has failed."
+                return 1
+
+            if args.generate_layout_only:
+                return 0
+
+        if args.build_test_wrappers:
+            build_test_wrappers(host_os, arch, build_type, coreclr_repo_location)
 
         do_il_link = args.il_link
 
