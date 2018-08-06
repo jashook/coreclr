@@ -130,6 +130,28 @@ set "__TestWorkingDir=%__RootBinDir%\tests\%__BuildOS%.%__BuildArch%.%__BuildTyp
 if not defined XunitTestBinBase       set  XunitTestBinBase=%__TestWorkingDir%
 if not defined XunitTestReportDirBase set  XunitTestReportDirBase=%XunitTestBinBase%\Reports\
 
+REM At this point in the script there will be a divergence in how the tests are run
+REM For official builds we will continue to run tests using the un-unified scripting
+REM which relies on msbuild and calls runtest.proj directly. For all other scenarios
+REM runtest.py will handle setup and calls runtest.proj.
+
+if defined __AgainstPackages (
+    goto SetupMSBuildAndCallRuntestProj
+)
+
+REM We are not running in the official build scenario, call runtest.py
+
+set __RuntestPyArg=""
+
+if defined DoLink (
+  set __RuntestPyArg="%__RuntestPyArgs% --il_link"
+)
+
+echo "%__ProjectDir%"\tests\runtest.py
+python "%__ProjectDir%"\tests\runtest.py 
+
+:SetupMSBuildAndCallRuntestProj
+
 :: Set up msbuild and tools environment. Check if msbuild and VS exist.
 
 set _msbuildexe=
