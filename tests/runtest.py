@@ -868,6 +868,8 @@ def setup_core_root(host_os,
         assert os.path.isdir(dest)
 
         for item in os.listdir(src):
+            if ".nuget" in item:
+                pass
             item = os.path.join(src, item)
 
             if os.path.isfile(item):
@@ -1311,7 +1313,7 @@ def create_repro(host_os, arch, build_type, env, core_root, coreclr_repo_locatio
         shutil.rmtree(repro_location)
     
     print "mkdir %s" % repro_location
-    os.mkdirs(repro_location)
+    os.makedirs(repro_location)
 
     print
     print "Creating repo files, they can be found at: %s" % repro_location
