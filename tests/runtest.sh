@@ -1366,6 +1366,19 @@ if [ -z "$testRootDir" ]; then
     print_usage
     exit $EXIT_CODE_EXCEPTION
 fi
+
+if [ "$_arch" == "x64" ]; then
+    echo "python runtest.py -arch $_arch -test_location $testRootDir -core_root $coreOverlayDir -test_native_bin_location -test_native_bin_location $testNativeBinDir"
+    python "runtest.py -arch $_arch -test_location $testRootDir -core_root $coreOverlayDir -test_native_bin_location -test_native_bin_location $testNativeBinDir"
+    exit $?
+
+fi
+
+if [ -z "$testRootDir" ]; then
+    echo "--testRootDir is required."
+    print_usage
+    exit $EXIT_CODE_EXCEPTION
+fi
 if [ ! -d "$testRootDir" ]; then
     echo "Directory specified by --testRootDir does not exist: $testRootDir"
     exit $EXIT_CODE_EXCEPTION

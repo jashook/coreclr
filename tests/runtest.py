@@ -104,7 +104,7 @@ parser.add_argument("--verbose", dest="verbose", action="store_true", default=Fa
 parser.add_argument("-rid", dest="rid", nargs="?", default=None)
 
 parser.add_argument("--il_link", dest="il_link", action="store_true", default=False)
-parser.add_argument("--build_test_wrappers", dest="build_test_wrappers", action="store_true", default=False)
+parser.add_argument("--rebuild_test_wrappers", dest="build_test_wrappers", action="store_true", default=False)
 parser.add_argument("--generate_layout", dest="generate_layout", action="store_true", default=False)
 parser.add_argument("--generate_layout_only", dest="generate_layout_only", action="store_true", default=False)
 
@@ -548,7 +548,12 @@ def call_msbuild(coreclr_repo_location,
 
     print " ".join(command)
     proc = subprocess.Popen(command)
-    proc.communicate()
+
+    try:
+        proc.communicate()
+    except:
+        proc.kill()
+        sys.exit(1)
 
     return proc.returncode
 
@@ -845,6 +850,9 @@ def setup_core_root(host_os,
         command = ["bash"] + command
         command += ["-MsBuildEventLogging=\"/l:BinClashLogger,Tools/Microsoft.DotNet.Build.Tasks.dll;LogFile=binclash.log\""]
 
+    if g_verbose:
+        command += ["-verbose"]
+
     command += [ "-BatchRestorePackages",
                  "-BuildType=%s" % build_type,
                  "-BuildArch=%s" % arch,
@@ -852,8 +860,17 @@ def setup_core_root(host_os,
 
     print "Restoring packages..."
     print " ".join(command)
-    proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    proc.communicate()
+
+    if not g_verbose:
+        proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    else:
+        proc = subprocess.Popen(command)
+
+    try:
+        proc.communicate()
+    except KeyboardInterrupt:
+        proc.kill()
+        sys.exit(1)
 
     if proc.returncode == 1:
         "Error test dependency resultion failed."
@@ -975,6 +992,7 @@ def build_test_wrappers(host_os,
 
     # Set global env variables.
     os.environ["__BuildLogRootName"] = "Tests_XunitWrapper"
+    os.environ["__Exclude"] = os.path.join(coreclr_repo_location, "tests", "issues.targets")
 
     command = [dotnetcli_location,
                "msbuild",
@@ -997,9 +1015,6 @@ def build_test_wrappers(host_os,
                 "/fileloggerparameters2:\"ErrorsOnly;LogFile=%s\"" % err_log,
                 "/consoleloggerparameters:Summary"]
 
-    if g_verbose:
-        command += ["/verbosity:diag"]
-
     command += ["/p:__BuildOS=%s" % host_os,
                 "/p:__BuildArch=%s" % arch,
                 "/p:__BuildType=%s" % build_type,
@@ -1007,34 +1022,43 @@ def build_test_wrappers(host_os,
 
     print "Creating test wrappers..."
     print " ".join(command)
-    proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    if not g_verbose:
+        proc = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        try:
+            expected_time_to_complete = 60*5 # 5 Minutes
+            estimated_time_running = 0
+
+            time_delta = 1
+
+            while True:
+                time_remaining = expected_time_to_complete - estimated_time_running
+                time_in_minutes = math.floor(time_remaining / 60)
+                remaining_seconds = time_remaining % 60
+
+                sys.stdout.write("\rEstimated time remaining: %d minutes %d seconds" % (time_in_minutes, remaining_seconds))
+                sys.stdout.flush()
+
+                time.sleep(time_delta)
+                estimated_time_running += time_delta
+
+                if estimated_time_running == expected_time_to_complete:
+                    break
+                if proc.poll() is not None:
+                    break
+
+        except KeyboardInterrupt:
+            proc.kill()
+            sys.exit(1)
+    else:
+        proc = subprocess.Popen(command)
 
     try:
-        expected_time_to_complete = 60*5 # 5 Minutes
-        estimated_time_running = 0
-
-        time_delta = 1
-
-        while True:
-            time_remaining = expected_time_to_complete - estimated_time_running
-            time_in_minutes = math.floor(time_remaining / 60)
-            remaining_seconds = time_remaining % 60
-
-            sys.stdout.write("\rEstimated time remaining: %d minutes %d seconds" % (time_in_minutes, remaining_seconds))
-            sys.stdout.flush()
-
-            time.sleep(time_delta)
-            estimated_time_running += time_delta
-
-            if estimated_time_running == expected_time_to_complete:
-                break
-            if proc.poll() is not None:
-                break
-
+        proc.communicate()
     except KeyboardInterrupt:
         proc.kill()
-
-    proc.communicate()
+        sys.exit(1)
 
     if proc.returncode == 1:
         "Error test dependency resultion failed."
