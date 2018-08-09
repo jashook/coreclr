@@ -69,9 +69,7 @@ WARNING:   When setting properties based on their current state (for example:
     <Message Text="Project depends on $(_CLRTestToRunFileFullPath)." Condition="'$(_CLRTestNeedsProjectToRun)' == 'True'" />
 
     <PropertyGroup>
-      <!-- An exit code of 2 indicates "Skipped" for regular non-windows runs, but "Failed" in Helix -->
-      <GCBashScriptExitCode Condition="'$(BuildTestsAgainstPackages)' != 'true'">2</GCBashScriptExitCode>
-      <GCBashScriptExitCode Condition="'$(BuildTestsAgainstPackages)' == 'true'">0</GCBashScriptExitCode>
+      <GCBashScriptExitCode>0</GCBashScriptExitCode>
 
       <BashCLRTestEnvironmentCompatibilityCheck Condition="'$(GCStressIncompatible)' == 'true'"><![CDATA[
 $(BashCLRTestEnvironmentCompatibilityCheck)
