@@ -93,8 +93,7 @@ parser.add_argument("-build_type", dest="build_type", nargs='?', default="Debug"
 parser.add_argument("-test_location", dest="test_location", nargs="?", default=None)
 parser.add_argument("-core_root", dest="core_root", nargs='?', default=None)
 parser.add_argument("-coreclr_repo_location", dest="coreclr_repo_location", default=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-parser.add_argument("--analyze_results_only", dest="analyze_results_only", action="store_true", default=False)
-parser.add_argument("--verbose", dest="verbose", action="store_true", default=False)
+parser.add_argument("-test_env", dest="test_env", default=None)
 
 # Optional arguments which change execution.
 
@@ -104,9 +103,17 @@ parser.add_argument("--verbose", dest="verbose", action="store_true", default=Fa
 parser.add_argument("-rid", dest="rid", nargs="?", default=None)
 
 parser.add_argument("--il_link", dest="il_link", action="store_true", default=False)
-parser.add_argument("--rebuild_test_wrappers", dest="build_test_wrappers", action="store_true", default=False)
+parser.add_argument("--long_gc", dest="long_gc", action="store_true", default=False)
+parser.add_argument("--gcsimulator", dest="gcsimulator", action="store_true", default=False)
+parser.add_argument("--jitdisasm", dest="jitdisasm", action="store_true", default=False)
+parser.add_argument("--ilasmroundtrip", dest="ilasmroundtrip", action="store_true", default=False)
+parser.add_argument("--sequential", dest="sequential", action="store_true", default=False)
+
+parser.add_argument("--build_xunit_test_wrappers", dest="build_test_wrappers", action="store_true", default=False)
 parser.add_argument("--generate_layout", dest="generate_layout", action="store_true", default=False)
 parser.add_argument("--generate_layout_only", dest="generate_layout_only", action="store_true", default=False)
+parser.add_argument("--analyze_results_only", dest="analyze_results_only", action="store_true", default=False)
+parser.add_argument("--verbose", dest="verbose", action="store_true", default=False)
 
 # Only used on Unix
 parser.add_argument("-test_native_bin_location", dest="test_native_bin_location", nargs='?', default=None)
@@ -116,6 +123,7 @@ parser.add_argument("-test_native_bin_location", dest="test_native_bin_location"
 ################################################################################
 
 g_verbose = False
+gc_stress_c = False
 file_name_cache = defaultdict(lambda: None)
 
 ################################################################################
@@ -316,7 +324,7 @@ echo Core_Root is set to: "%%CORE_ROOT%%"
         line_sep = os.linesep
 
         if self.env is not None:
-            for key, value in self.env:
+            for key, value in self.env.iteritems():
                 wrapper += "echo set %s=%s%s" % (key, value, line_sep)
                 wrapper += "set %s=%s%s" % (key, value, line_sep)
 
@@ -350,14 +358,18 @@ echo Core_Root is set to: "%%CORE_ROOT%%"
 # ============================================================================
 
 # Set Core_Root if it has not been already set.
-if [ -z ${CORE_ROOT} ]; then echo "CORE_ROOT is set to $CORE_ROOT"; else export CORE_ROOT=%s; fi
+if [ \"${CORE_ROOT}\" = \"\" ] || [ ! -z \"${CORE_ROOT}\" ]; then 
+    export CORE_ROOT=%s 
+else 
+    echo \"CORE_ROOT set to ${CORE_ROOT}\"
+fi
 
 """ % (self.unique_name, self.core_root)
 
         line_sep = os.linesep
 
         if self.env is not None:
-            for key, value in self.env:
+            for key, value in self.env.iteritems():
                 wrapper += "echo export %s=%s%s" % (key, value, line_sep)
                 wrapper += "export %s=%s%s" % (key, value, line_sep)
 
@@ -400,6 +412,7 @@ def create_and_use_test_env(_os, env, func):
         on windows, until xunit is used on unix there is no managed code run
         in runtest.sh.
     """
+    global gc_stress_c
 
     complus_vars = defaultdict(lambda: None)
 
@@ -439,6 +452,9 @@ REM Temporary test env for test run.
                         command = "export"
 
                     print "Unset %s" % key
+                    if key == "COMPlus_GCStress" and "c" in value.lower():
+                        gc_stress_c = True
+
                     os.environ[key] = ""
 
                     file_handle.write("%s %s=%s%s" % (command, key, value, os.linesep))
@@ -460,7 +476,7 @@ REM Temporary test env for test run.
     else:
         return func(None)
 
-def get_environment():
+def get_environment(use_test_env=False):
     """ Get all the COMPlus_* Environment variables
     
     Notes:
@@ -612,12 +628,12 @@ def run_tests(host_os,
     # Setup the environment
     if is_long_gc:
         print "Running Long GC Tests, extending timeout to 20 minutes."
-        os.environ["__TestTimeout"] = "1200000" # 1,200,000 ms
+        os.environ["__TestTimeout"] = str(20*60*1000) # 1,200,000 ms
         os.environ["RunningLongGCTests"] = "1"
     
     if is_gcsimulator:
         print "Running GCSimulator tests, extending timeout to one hour."
-        os.environ["__TestTimeout"] = "3600000" # 3,600,000 ms
+        os.environ["__TestTimeout"] = str(60*60*1000) # 3,600,000 ms
         os.environ["RunningGCSimulatorTests"] = "1"
 
     if is_jitdasm:
@@ -628,8 +644,16 @@ def run_tests(host_os,
         print "Running ILasm round trip."
         os.environ["RunningIlasmRoundTrip"] = "1"
 
+    if "COMPlus_GCStress" in os.environ:
+        print "Running GCStress, extending timeout to120 minutes."
+        os.environ["__TestTimeout"] = str(120*60*1000) # 1,800,000 ms
+
     # Set Core_Root
     os.environ["CORE_ROOT"] = core_root
+
+    # Set test env if exists
+    if test_env is not None:
+        os.environ["__TestEnv"] = test_env
 
     # Call msbuild.
     return call_msbuild(coreclr_repo_location,
@@ -718,7 +742,8 @@ def setup_args(args):
                 print "Please run runtest.py again with the correct build-type by passing -build_type"
             else:
                 print "No tests have been built for this host and arch. Please run build-test.%s" % ("cmd" if host_os == "Windows_NT" else "sh")
-                sys.exit(1)
+            
+            sys.exit(1)
 
     if core_root is None:
         default_core_root = os.path.join(test_location, "Tests", "Core_Root")
@@ -813,6 +838,8 @@ def setup_core_root(host_os,
                                     : tests
 
     """
+    global gc_stress_c
+    global g_verbose
 
     # Create core_root if it does not exist
     if not os.path.isdir(core_root):
@@ -910,6 +937,24 @@ def setup_core_root(host_os,
     if host_os != "Windows_NT":
         copy_native_test_bin_to_core_root(host_os, os.path.join(test_native_bin_location, "src"), core_root)
 
+    # If COMPlus_GCStress is set then we need to setup cordistools
+    if gc_stress_c:
+        if host_os == "OSX":
+            print "Error, COMPlus_GCStress=0xC is currently not supported on your target."
+            sys.exit(1)
+
+        if host_os != "Windows_NT":
+            setup_stress_location = os.path.join(coreclr_repo_location,"tests", "setup-stress-dependencies.sh")
+            command = [setup_stress_location, "--outputDir=%s" % core_root]
+
+            print " ".join(command)
+            proc = subprocess.Popen(command)
+            proc.communicate()
+
+            if not proc.returncode == 0:
+                print "setup_stress_dependencies.sh failed."
+                sys.exit(1)
+
     if is_corefx:
         corefx_utility_setup = os.path.join(coreclr_repo_location,
                                             "src",
@@ -926,7 +971,7 @@ def setup_core_root(host_os,
         proc = subprocess.Popen(msbuild_command)
         proc.communicate()
 
-        if proc.returncode == 1:
+        if not proc.returncode == 0:
             "Error test dependency resultion failed."
             return False
 
@@ -1201,6 +1246,8 @@ def parse_test_results(host_os, arch, build_type, coreclr_repo_location, test_lo
                 time = float(collection.attrib["time"])
 
                 test_location_on_filesystem = find_test_from_name(host_os, test_location, test_name)
+
+                assert os.path.isfile(test_location_on_filesystem)
                 
                 assert tests[test_name] == None
                 tests[test_name] = {
@@ -1251,64 +1298,52 @@ def print_summary(tests):
     passed_tests.sort(key=lambda item: item["time"], reverse=True)
     skipped_tests.sort(key=lambda item: item["time"], reverse=True)
 
-    if len(failed_tests) > 0:
-        print "Failed tests:"
-        print
-        for item in failed_tests:
+    def print_tests_helper(tests, stop_count):
+        for index, item in enumerate(tests):
             time = item["time"]
             unit = "seconds"
+            time_remainder = ""
+            second_unit = ""
+            saved_time = time
+            remainder_str = ""
 
             # If it can be expressed in hours
             if time > 60**2:
-                time = time / (60**2)
+                time = saved_time / (60**2)
+                time_remainder = saved_time % (60**2)
+                time_remainder /= 60
+                time_remainder = math.floor(time_remainder)
                 unit = "hours"
+                second_unit = "minutes"
+
+                remainder_str = " %s %s" % (int(time_remainder), second_unit)
 
             elif time > 60 and time < 60**2:
-                time = time / 60
+                time = saved_time / 60
+                time_remainder = saved_time % 60
+                time_remainder = math.floor(time_remainder)
                 unit = "minutes"
+                second_unit = "seconds"
 
-            print "%s (%d %s)" % (item["test_path"], time, unit)
+                remainder_str = " %s %s" % (int(time_remainder), second_unit)
+
+            print "%s (%d %s%s)" % (item["test_path"], time, unit, remainder_str)
+
+            if stop_count != None:
+                if index >= stop_count:
+                    break
+
+    if len(failed_tests) > 0:
+        print "Failed tests:"
+        print
+        print_tests_helper(failed_tests, None)
+        
 
     if len(passed_tests) > 50:
         print
         print "50 slowest passing tests:"
         print
-        for index, item in enumerate(passed_tests):
-            time = item["time"]
-            unit = "seconds"
-
-            # If it can be expressed in hours
-            if time > 60**2:
-                time = time / (60**2)
-                unit = "hours"
-
-            elif time > 60 and time < 60**2:
-                time = time / 60
-                unit = "minutes"
-
-            print "%s (%d %s)" % (item["test_path"], time, unit)
-
-            if index >= 50:
-                break
-
-    if len(skipped_tests) > 0:
-        print
-        print "Skipped tests:"
-        print
-        for item in skipped_tests:
-            time = item["time"]
-            unit = "seconds"
-
-            # If it can be expressed in hours
-            if time > 60**2:
-                time = time / (60**2)
-                unit = "hours"
-
-            elif time > 60 and time < 60**2:
-                time = time / 60
-                unit = "minutes"
-
-            print "%s (%d %s)" % (item["test_path"], time, unit)
+        print_tests_helper(passed_tests, 50)
 
 def create_repro(host_os, arch, build_type, env, core_root, coreclr_repo_location, tests):
     """ Go through the failing tests and create repros for them
@@ -1353,6 +1388,40 @@ def create_repro(host_os, arch, build_type, env, core_root, coreclr_repo_locatio
     print "Repro files written."
     print "They can be found at %s" % repro_location
 
+def do_setup(host_os, arch, build_type, coreclr_repo_location, test_location, test_native_bin_location, core_root, unprocessed_args, test_env):
+    # Setup the tools for the repo.
+    setup_tools(host_os, coreclr_repo_location)
+
+    product_location = os.path.join(coreclr_repo_location, "bin", "Product", "%s.%s.%s" % (host_os, arch, build_type))
+
+    if unprocessed_args.generate_layout or host_os != "Windows_NT":
+        success = setup_core_root(host_os, arch, build_type, coreclr_repo_location, test_native_bin_location, product_location, core_root)
+
+        if not success:
+            print "Error GenerateLayout has failed."
+            sys.exit(1)
+
+        if unprocessed_args.generate_layout_only:
+            sys.exit(0)
+
+    if unprocessed_args.build_test_wrappers:
+        build_test_wrappers(host_os, arch, build_type, coreclr_repo_location)
+
+    run_tests(host_os, 
+              arch,
+              build_type,
+              core_root, 
+              coreclr_repo_location,
+              test_location, 
+              test_native_bin_location,
+              is_illink=unprocessed_args.il_link, 
+              is_long_gc=unprocessed_args.long_gc,
+              is_gcsimulator=unprocessed_args.gcsimulator,
+              is_jitdasm=unprocessed_args.jitdisasm,
+              is_ilasm=unprocessed_args.ilasmroundtrip,
+              run_sequential=unprocessed_args.sequential,
+              test_env=test_env)
+
 ################################################################################
 # Main
 ################################################################################
@@ -1363,41 +1432,30 @@ def main(args):
 
     host_os, arch, build_type, coreclr_repo_location, core_root, test_location, test_native_bin_location = setup_args(args)
 
-    env = None
+    env = get_environment()
     if not args.analyze_results_only:
-        # Setup the tools for the repo.
-        setup_tools(host_os, coreclr_repo_location)
-
-        product_location = os.path.join(coreclr_repo_location, "bin", "Product", "%s.%s.%s" % (host_os, arch, build_type))
-
-        if args.generate_layout or host_os != "Windows_NT":
-            success = setup_core_root(host_os, arch, build_type, coreclr_repo_location, test_native_bin_location, product_location, core_root)
-
-            if not success:
-                print "Error GenerateLayout has failed."
-                return 1
-
-            if args.generate_layout_only:
-                return 0
-
-        if args.build_test_wrappers:
-            build_test_wrappers(host_os, arch, build_type, coreclr_repo_location)
-
-        do_il_link = args.il_link
-
-        env = get_environment()
-        ret_code = create_and_use_test_env(host_os, 
-                                           env, 
-                                           lambda path: run_tests(host_os, 
-                                                                  arch,
-                                                                  build_type,
-                                                                  core_root, 
-                                                                  coreclr_repo_location,
-                                                                  test_location, 
-                                                                  test_native_bin_location,
-                                                                  is_illink=do_il_link, 
-                                                                  test_env=path))
-
+        if args.test_env is not None:
+            ret_code = do_setup(host_os,
+                                arch,
+                                build_type,
+                                coreclr_repo_location,
+                                test_location,
+                                test_native_bin_location,
+                                core_root,
+                                args,
+                                args.test_env)
+        else:
+            ret_code = create_and_use_test_env(host_os, 
+                                               env, 
+                                               lambda path: do_setup(host_os,
+                                                                     arch,
+                                                                     build_type,
+                                                                     coreclr_repo_location,
+                                                                     test_location,
+                                                                     test_native_bin_location,
+                                                                     core_root,
+                                                                     args,
+                                                                     path))
         print "Test run finished."
 
     tests = parse_test_results(host_os, arch, build_type, coreclr_repo_location, test_location)
