@@ -49,40 +49,47 @@
         </ExcludeList>
     </ItemGroup>
 
+    <!-- All Unix targets -->
+    <ItemGroup Condition="'$(XunitTestBinBase)' != '' and '$(TargetsWindows)' != 'true'">
+        <ExcludeList Include="$(XunitTestBinBase)/baseservices/threading/paramthreadstart/ThreadStartString_1/*">
+            <Issue>18381</Issue>
+        </ExcludeList>
+    </ItemGroup>
+
     <!-- Arm64 All OS -->
     <ItemGroup Condition="'$(XunitTestBinBase)' != '' and '$(BuildArch)' == 'arm64'">
-        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/JitBlue/DevDiv_359736/*">
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/JitBlue/DevDiv_359736/**">
             <Issue>8648</Issue>
         </ExcludeList>
         <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/opt/cse/hugeexpr1/hugeexpr1/*">
-            <Issue>8648</Issue>
+            <Issue>needs triage</Issue>
         </ExcludeList>
         <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/opt/cse/HugeArray/*">
-            <Issue>8648</Issue>
+            <Issue>needs triage</Issue>
         </ExcludeList>      
         <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/opt/cse/HugeArray1/*">
-            <Issue>8648</Issue>
+            <Issue>needs triage</Issue>
         </ExcludeList>        
         <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/opt/cse/HugeField1/*">
-            <Issue>8648</Issue>
+            <Issue>needs triage</Issue>
         </ExcludeList>
         <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/opt/cse/HugeField2/*">
-            <Issue>8648</Issue>
+            <Issue>needs triage</Issue>
         </ExcludeList>        
         <ExcludeList Include="$(XunitTestBinBase)/CoreMangLib/cti/system/string/StringFormat1/*">
-            <Issue>8648</Issue>
+            <Issue>needs triage</Issue>
         </ExcludeList>
         <ExcludeList Include="$(XunitTestBinBase)/CoreMangLib/cti/system/string/StringFormat2/*">
-            <Issue>8648</Issue>
+            <Issue>needs triage</Issue>
         </ExcludeList>        
         <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/JitBlue/DevDiv_590772/DevDiv_590772/*">
-            <Issue>8648</Issue>
+            <Issue>needs triage</Issue>
         </ExcludeList>
         <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/JitBlue/DevDiv_605447/DevDiv_605447/*">
-            <Issue>8648</Issue>
+            <Issue>needs triage</Issue>
         </ExcludeList>
         <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/JitBlue/DevDiv_590771/DevDiv_590771/*">
-            <Issue>8648</Issue>
+            <Issue>needs triage</Issue>
         </ExcludeList>
     </ItemGroup>
 
@@ -239,10 +246,6 @@
 
     <!-- The following are x64 Unix failures. -->
     <ItemGroup Condition="'$(XunitTestBinBase)' != '' and '$(BuildArch)' == 'x64' and '$(TargetsWindows)' != 'true' and '$(BuildTestsAgainstPackages)' != 'true'">
-        <!-- Non GC Specific failures -->
-        <ExcludeList Include="$(XunitTestBinBase)/baseservices/threading/paramthreadstart/ThreadStartString_1/*">
-            <Issue>18381</Issue>
-        </ExcludeList>
         <ExcludeList Include="$(XunitTestBinBase)/JIT/Methodical/refany/_il_dbgseq/*">
             <Issue>Varargs not supported on this platform</Issue>
         </ExcludeList>
@@ -299,6 +302,26 @@
         </ExcludeList>
         <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/JitBlue/GitHub_19149/GitHub_19149/*">
             <Issue>Needs Triage</Issue>
+        </ExcludeList>
+    </ItemGroup>
+
+    <!-- Unix arm64 specific -->
+    <ItemGroup Condition="'$(XunitTestBinBase)' != '' and '$(BuildArch)' == 'arm64' and '$(TargetsWindows)' != 'true' and '$(BuildTestsAgainstPackages)' != 'true'">
+    <ItemGroup>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/eh/FinallyExec/nonlocalexitinhandler/*">
+            <Issue>Test times out</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/eh/FinallyExec/nonlocalexitinfinally/*">
+            <Issue>Test times out</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/eh/FinallyExec/nonlocalexitintry/*">
+            <Issue>Test times out</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/eh/FinallyExec/nonlocalexitincatch/*">
+            <Issue>Test times out</Issue>
+        </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/eh/FinallyExec/nonlocalexitinroot/*">
+            <Issue>Test times out</Issue>
         </ExcludeList>
     </ItemGroup>
 
