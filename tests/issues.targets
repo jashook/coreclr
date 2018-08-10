@@ -49,6 +49,16 @@
         </ExcludeList>
     </ItemGroup>
 
+    <!-- Arm64 All OS -->
+    <ItemGroup Condition="'$(XunitTestBinBase)' != '' and '$(BuildArch)' == 'arm64'">
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/JitBlue/DevDiv_359736/DevDiv_359736_ro/*">
+            <Issue>8648</Issue>
+        </ExcludeList>        
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/JitBlue/DevDiv_359736/DevDiv_359736_do/*">
+            <Issue>8648</Issue>
+        </ExcludeList>
+    </ItemGroup>
+
     <!-- Windows x64 specific excludes -->
     <ItemGroup Condition="'$(XunitTestBinBase)' != '' and '$(BuildArch)' == 'x64' and '$(TargetsWindows)' == 'true'">
         <ExcludeList Include="$(XunitTestBinBase)/Loader/classloader/TypeGeneratorTests/TypeGeneratorTest612/Generated612/*">
@@ -139,12 +149,6 @@
         </ExcludeList>
         <ExcludeList Include="$(XunitTestBinBase)/Loader/classloader/DefaultInterfaceMethods/simple/simple/*">
             <Issue>9565</Issue>
-        </ExcludeList>
-        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/JitBlue/DevDiv_359736/DevDiv_359736_ro/*">
-            <Issue>8648</Issue>
-        </ExcludeList>        
-        <ExcludeList Include="$(XunitTestBinBase)/JIT/Regression/JitBlue/DevDiv_359736/DevDiv_359736_do/*">
-            <Issue>8648</Issue>
         </ExcludeList>
         <ExcludeList Include="$(XunitTestBinBase)/Loader/classloader/DefaultInterfaceMethods/valuetypes/valuetypes/*">
             <Issue>9565</Issue>
