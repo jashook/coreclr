@@ -1393,7 +1393,7 @@ def do_setup(host_os, arch, build_type, coreclr_repo_location, test_location, te
 
     product_location = os.path.join(coreclr_repo_location, "bin", "Product", "%s.%s.%s" % (host_os, arch, build_type))
 
-    if unprocessed_args.generate_layout or host_os != "Windows_NT":
+    if unprocessed_args.generate_layout:
         success = setup_core_root(host_os, arch, build_type, coreclr_repo_location, test_native_bin_location, product_location, core_root)
 
         if not success:
