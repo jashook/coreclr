@@ -85,8 +85,7 @@ native tests components must be copied from:
 bin/obj/<Host>.<Arch>.<BuildType/tests to the target. If the location is not
 standard please pass the -test_native_bin_location flag to the script.""")
 
-# Use either - or / to designate switches.
-parser = argparse.ArgumentParser(description=description, prefix_chars='-/')
+parser = argparse.ArgumentParser(description=description)
 
 parser.add_argument("-arch", dest="arch", nargs='?', default="x64")
 parser.add_argument("-build_type", dest="build_type", nargs='?', default="Debug")
@@ -763,8 +762,10 @@ def setup_args(args):
             sys.exit(1)
 
         else:
-            print "--generate_layout passed. Core_Root will be popualted at: %s" % default_core_root
+            print "--generate_layout passed. Core_Root will be populated at: %s" % default_core_root
             core_root = default_core_root
+    else:
+        print "Core_Root: %s" % core_root
 
     if host_os != "Windows_NT":
         if test_native_bin_location is None:
@@ -822,7 +823,8 @@ def setup_core_root(host_os,
                     test_native_bin_location,
                     product_location,
                     core_root,
-                    is_corefx=False):
+                    is_corefx=False,
+                    generate_layout=True):
     """ Setup the core root
 
     Args:
@@ -832,6 +834,7 @@ def setup_core_root(host_os,
         coreclr_repo_location(str)  : coreclr repo location
         product_location(str)       : Produit location
         core_root(str)              : Location for core_root
+        is_corefx                   : Building corefx core_root
 
     Optional Args:
         is_corefx(Bool)             : Pass if planning on running corex
@@ -932,10 +935,6 @@ def setup_core_root(host_os,
     copy_tree(product_location, core_root)
     print "---------------------------------------------------------------------"
     print
-
-    # Copy all the native libs to core_root
-    if host_os != "Windows_NT":
-        copy_native_test_bin_to_core_root(host_os, os.path.join(test_native_bin_location, "src"), core_root)
 
     # If COMPlus_GCStress is set then we need to setup cordistools
     if gc_stress_c:
@@ -1403,6 +1402,11 @@ def do_setup(host_os, arch, build_type, coreclr_repo_location, test_location, te
 
         if unprocessed_args.generate_layout_only:
             sys.exit(0)
+
+    
+    # Copy all the native libs to core_root
+    if host_os != "Windows_NT":
+        copy_native_test_bin_to_core_root(host_os, os.path.join(test_native_bin_location, "src"), core_root)
 
     if unprocessed_args.build_test_wrappers:
         build_test_wrappers(host_os, arch, build_type, coreclr_repo_location)
