@@ -304,7 +304,6 @@
 
     <!-- Unix arm64 specific -->
     <ItemGroup Condition="'$(XunitTestBinBase)' != '' and '$(BuildArch)' == 'arm64' and '$(TargetsWindows)' != 'true' and '$(BuildTestsAgainstPackages)' != 'true'">
-    <ItemGroup>
         <ExcludeList Include="$(XunitTestBinBase)/JIT/jit64/eh/FinallyExec/nonlocalexitinhandler/*">
             <Issue>Test times out</Issue>
         </ExcludeList>
