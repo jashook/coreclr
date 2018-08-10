@@ -1214,10 +1214,21 @@ def parse_test_results(host_os, arch, build_type, coreclr_repo_location, test_lo
     test_run_location = os.path.join(coreclr_repo_location, "bin", "Logs", "testRun.xml")
 
     if not os.path.isfile(test_run_location):
-        print "Unable to find testRun.xml. This normally means the tests did not run."
-        print "It could also mean there was a problem logging. Please run the tests again."
+        # Check if this is a case issue
 
-        return
+        found = False
+        for item in os.listdir(os.path.dirname(test_run_location)):
+            item_lower = item.lower()
+            if item_lower == "testrun.xml":
+                test_run_location = os.path.join(coreclr_repo_location, "bin", "Logs", item)
+                found = True
+                break
+
+        if not found:
+            print "Unable to find testRun.xml. This normally means the tests did not run."
+            print "It could also mean there was a problem logging. Please run the tests again."
+
+            return
 
     assemblies = xml.etree.ElementTree.parse(test_run_location).getroot()
 
