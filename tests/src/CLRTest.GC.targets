@@ -18,15 +18,7 @@ WARNING:   When setting properties based on their current state (for example:
 -->
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
-      <!-- An exit code of 2 indicates "Skipped" for regular non-windows runs, but "Failed" in Helix -->
-        <GCBashScriptExitCode Condition="'$(BuildTestsAgainstPackages)' != 'true'">2</GCBashScriptExitCode>
-        <GCBashScriptExitCode Condition="'$(BuildTestsAgainstPackages)' == 'true'">0</GCBashScriptExitCode>
-
-        <!-- If we are building on unix -->
-        <!-- Note this is a hack that will break the existing runtest.sh infrastructure if build-test.sh is used. -->
-        <!-- It is however, required to run using xunit on unix -->
-        <GCBashScriptExitCode Condition="'$(BuildTestsAgainstPackages)' != 'true' and '$(TargetsWindows)' != 'true'">0</GCBashScriptExitCode>
-
+        <GCBashScriptExitCode>0</GCBashScriptExitCode>
         <GCLongGCTestBashScript Condition="'$(IsLongRunningGCTest)' != 'true'"><![CDATA[
 # Long GC script
 if [ ! -z $RunningLongGCTests ]
