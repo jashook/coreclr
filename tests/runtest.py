@@ -805,9 +805,9 @@ def setup_tools(host_os, coreclr_repo_location):
     if not setup:
         command = None
         if is_windows:
-            command = [os.path.join(coreclr_repo_location, "init_tools.cmd")]
+            command = [os.path.join(coreclr_repo_location, "init-tools.cmd")]
         else:
-            command = ["sh", os.path.join(coreclr_repo_location, "init_tools.sh")]
+            command = ["sh", os.path.join(coreclr_repo_location, "init-tools.sh")]
 
         print " ".join(command)
         subprocess.check_output(command)
