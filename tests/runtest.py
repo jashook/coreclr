@@ -18,12 +18,12 @@
 # The xunit runner currently relies on tests being built on the same host as the
 # target platform. This requires all tests run on linux x64 to be built by the
 # same platform and arch. If this is not done, the tests will run correctly;
-# however, excpect failures due to incorrect exclusions in the xunit 
+# however, expect failures due to incorrect exclusions in the xunit 
 # wrappers setup at build time.
 #
-# Note that for linux targets the native componants to the tests are still built
+# Note that for linux targets the native components to the tests are still built
 # by the product build. This requires all native components to be either copied
-# into the Core_Root directory or the test's managed directory. The later is
+# into the Core_Root directory or the test's managed directory. The latter is
 # prone to failure; however, copying into the Core_Root directory may create
 # naming conflicts.
 #
@@ -71,12 +71,12 @@ ilproj or csproj.
 The xunit runner currently relies on tests being built on the same host as the
 target platform. This requires all tests run on linux x64 to be built by the
 same platform and arch. If this is not done, the tests will run correctly;
-however, excpect failures due to incorrect exclusions in the xunit 
+however, expect failures due to incorrect exclusions in the xunit 
 wrappers setup at build time.
 
-Note that for linux targets the native componants to the tests are still built
+Note that for linux targets the native components to the tests are still built
 by the product build. This requires all native components to be either copied
-into the Core_Root directory or the test's managed directory. The later is
+into the Core_Root directory or the test's managed directory. The latter is
 prone to failure; however, copying into the Core_Root directory may create
 naming conflicts.
 
@@ -349,7 +349,7 @@ echo Core_Root is set to: "%%CORE_ROOT%%"
 # the tests.
 #
 # In order to change how this wrapper is generated, see
-# runtest.py:__create_batch_wrapper__(). Please note that it is possible
+# runtest.py:__create_bash_wrapper__(). Please note that it is possible
 # to recreate this file by running tests/runtest.py --analyze_results_only
 # with the appropriate environment set and the correct arch and build_type
 # passed.
@@ -773,8 +773,7 @@ def setup_args(args):
             test_native_bin_location = os.path.join(os.path.join(coreclr_repo_location, "bin", "obj", "%s.%s.%s" % (host_os, arch, build_type), "tests"))
             print "Native bin location: %s" % test_native_bin_location
             print
-
-    if host_os != "Windows_NT":
+            
         if not os.path.isdir(test_native_bin_location):
             print "Error, test_native_bin_location: %s, does not exist." % test_native_bin_location
             sys.exit(1)
