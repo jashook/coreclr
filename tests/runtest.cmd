@@ -198,8 +198,14 @@ if defined __DoCrossgen (
     set __RuntestPyArgs=%__RuntestPyArgs% --precompile_core_root
 )
 
+REM Default to python3 if it is installed.
+set __Python=python
+
+where python3
+if %ERRORLEVEL% NEQ 0 set __PYTHON=python3
+
 REM __ProjectDir is poorly named, it is actually <projectDir>/tests
-set NEXTCMD=python "%__ProjectDir%\runtest.py" %__RuntestPyArgs%
+set NEXTCMD=%__Python% "%__ProjectDir%\runtest.py" %__RuntestPyArgs%
 echo !NEXTCMD!
 !NEXTCMD!
 

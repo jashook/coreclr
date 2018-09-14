@@ -1,28 +1,61 @@
-Cross Compilation for ARM on Windows
-==================================
+The following document explains how to build for cross targets on an x64 hosted device. Please note that it is possible to cross build for many different targets; however, this document focuses on arm and arm64.
 
-Building ARM for Windows can be done using cross compilation.
+[Cross compiling for arm32|arm64 Windows](#Cross-Compilation-for-Arm,-Arm64-on-Windows)
 
-Requirements
-------------
-
-Install the ARM tools and Windows SDK, as described [here](https://github.com/dotnet/coreclr/blob/master/Documentation/building/windows-instructions.md).
-
-Cross compiling CoreCLR
------------------------
-
-Build using "-arm" as the architecture. For example:
-
-    C:\coreclr> build.cmd -arm -debug
+-----------------------------------------
 
 
-Cross Compilation for ARM, ARM64 or x86 on Linux
-================================================
+##Cross Compilation for Arm, Arm64 on Windows
 
-Through cross compilation, on Linux it is possible to build CoreCLR for arm or arm64.
+Building arm64 on Windows must be done using the x86-arm or (x86|x64-arm64) cross compiler tools provided by visual studio.
 
-Requirements for targetting Debian based distros
-------------------------------------------------
+####Requirements:
+
+Install the arm64 tools and Windows SDK, as described [here](https://github.com/dotnet/coreclr/blob/master/Documentation/building/windows-instructions.md#visual-studio).
+
+
+####Building:
+
+Build using "arm|arm64" as the architecture. For example:
+
+**Arm32:**
+>build.cmd arm debug
+
+**Arm64:**
+>build.cmd arm64 debug
+
+####Using the build
+
+The build will produce an arm|arm64 folders under `bin/Product/Windows_NT.arm(64).Debug` and `bin/tests/Windows_NT.arm(64).Debug`. The product directory is not important, as CORE_ROOT has already been correctly set up under `bin/tests/Windows_NT.arm(64).Debug/Tests/Core_Root`. Therefore, the only thing required to be copied over to the arm device is `bin/tests/Windows_NT.arm(64).Debug`. You can then run tests with:
+
+>set CORE_ROOT=\<path_to_test_folder\>\Tests\Core_Root
+>pushd <path_to_test_folder\>\JIT\CodeGenBringupTests\div2_d\div2_d
+>div2_d.cmd
+
+#Cross Compilation for ARM, ARM64 or x86 on Linux
+
+There are two supported ways to cross-compile on unix. The first and suggested way is to rely on official docker image builds which automate the rootfs generation. The second way, is to generate your own rootfs and target it natively on the OS you will be building on. The rootfs generation is slow, and error prone, making it highly suggested to use the docker images provided.
+
+[Docker images](###Docker-Images)
+[Docker cross build armhf/ubuntu](###Cross-Compiling-armhf-Using-Docker)
+
+###Docker Images
+
+All docker images can be found at: https://hub.docker.com/r/microsoft/dotnet-buildtools-prereqs/tags/. The interesting tags will have ubuntu-16.04-cross-arm-(some hash).
+
+Current suggested docker images:
+
+Ubuntu 14.04-armhf: `microsoft/dotnet-buildtools-prereqs:ubuntu-14.04-cross-c103199-20180628134413`
+Ubuntu 16.04-armhf: `microsoft/dotnet-buildtools-prereqs:ubuntu-16.04-cross-e435274-20180628134544`
+Ubuntu 16.04-aarch64: `microsoft/dotnet-buildtools-prereqs:ubuntu-16.04-cross-arm64-e435274-20180628134544`
+
+
+
+###Cross-Compiling-armhf-Using-Docker
+
+
+
+###Requirements for targetting Debian based distros
 
 You need a Debian based host and the following packages needs to be installed:
 
@@ -37,8 +70,7 @@ and conversely for arm64:
     ben@ubuntu ~/git/coreclr/ $ sudo apt-get install binutils-aarch64-linux-gnu
 
 
-Requirements for targetting ARM or ARM64 Alpine Linux
------------------------------------------------------
+###Requirements for targetting ARM or ARM64 Alpine Linux
 
 You can use any Linux distro as a host. The qemu, qemu-user-static and binfmt-support packages need to be installed (the names may be different for some distros).
 
@@ -88,9 +120,7 @@ and if you wanted to generate the rootfs elsewhere:
 
     hque@ubuntu ~/git/coreclr/ $ sudo ROOTFS_DIR=/home/ben/coreclr-cross/armel ./cross/build-rootfs.sh armel tizen
 
-
-Cross compiling CoreCLR
------------------------
+###Cross compiling CoreCLR
 Once the rootfs has been generated, it will be possible to cross compile CoreCLR. If `ROOTFS_DIR` was set when generating the rootfs, then it must also be set when running `build.sh`.
 
 So, without `ROOTFS_DIR`:
@@ -102,7 +132,6 @@ And with:
     ben@ubuntu ~/git/coreclr/ $ ROOTFS_DIR=/home/ben/coreclr-cross/arm ./build.sh arm debug verbose cross
 
 As usual the resulting binaries will be found in `bin/Product/BuildOS.BuildArch.BuildType/`
-
 
 Compiling System.Private.CoreLib for ARM Linux
 ==============================================
