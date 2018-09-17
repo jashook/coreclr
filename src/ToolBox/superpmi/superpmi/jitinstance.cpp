@@ -30,6 +30,9 @@ JitInstance* JitInstance::InitJit(char*          nameOfJit,
 
     jit->options = options;
 
+    jit->environment.getIntConfigValue   = nullptr;
+    jit->environment.getStingConfigValue = nullptr;
+
     if (st1 != nullptr)
         st1->Start();
     HRESULT hr = jit->StartUp(nameOfJit, false, breakOnAssert, firstContext);
@@ -500,6 +503,9 @@ bool JitInstance::callJitStartup(ICorJitHost* jithost)
     }
     PAL_ENDTRY
 
+    Assert(environment.getIntConfigValue == nullptr && environment.getStingConfigValue == nullptr);
+    environment = mc->cloneEnvironment();
+
     return param.result;
 }
 
@@ -511,7 +517,19 @@ bool JitInstance::resetConfig(MethodContext* firstContext)
         return false;
     }
 
-    mc = firstContext;
+    if (environment.getIntConfigValue != nullptr)
+    {
+        delete environment.getIntConfigValue;
+        environment.getIntConfigValue = nullptr;
+    }
+
+    if (environment.getStingConfigValue != nullptr)
+    {
+        delete environment.getStingConfigValue;
+        environment.getStingConfigValue = nullptr;
+    }
+
+    mc                   = firstContext;
     ICorJitHost* newHost = new JitHost(*this);
 
     if (!callJitStartup(newHost))
@@ -522,4 +540,9 @@ bool JitInstance::resetConfig(MethodContext* firstContext)
     delete static_cast<JitHost*>(jitHost);
     jitHost = newHost;
     return true;
+}
+
+const MethodContext::Environment& JitInstance::getEnvironment()
+{
+    return environment;
 }
