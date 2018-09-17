@@ -577,6 +577,8 @@ def call_msbuild(coreclr_repo_location,
                  "/p:Runtests=true",
                  "/clp:showcommandline"]
 
+    command += common_msbuild_arguments
+
     if is_illink:
         command += ["/p:RunTestsViaIllink=true"]
 
@@ -1621,8 +1623,6 @@ def find_test_from_name(host_os, test_location, test_name):
     location = starting_path
     if not os.path.isfile(location):
         pass
-    
-    assert(os.path.isfile(location))
 
     return location
 
@@ -1699,8 +1699,6 @@ def parse_test_results(host_os, arch, build_type, coreclr_repo_location, test_lo
                     test_output = failure_info[0].text
 
                 test_location_on_filesystem = find_test_from_name(host_os, test_location, test_name)
-
-                assert os.path.isfile(test_location_on_filesystem)
                 
                 assert tests[test_name] == None
                 tests[test_name] = defaultdict(lambda: None, {
@@ -1818,7 +1816,14 @@ def print_summary(tests):
             test_output = test_output.replace("/r", "\r")
             test_output = test_output.replace("/n", "\n")
 
-            print(test_output)
+            unicode_output = None
+            if sys.version_info < (3,0):
+                # Handle unicode characters in output in python2.*
+                unicode_output = unicode(test_output, "utf-8")
+            else:
+                unicode_output = test_output
+
+            print(unicode_output)
             print("")
 
         print("")
