@@ -2516,31 +2516,9 @@ def static calculateBuildCommands(def newJob, def scenario, def branch, def isPR
                         buildCommands += "${dockerCmd}zip -r ${workspaceRelativeArtifactsArchive} ${workspaceRelativeCoreLib} ${workspaceRelativeCoreRootDir} ${workspaceRelativeCrossGenComparisonScript} ${workspaceRelativeResultsDir}"
                         Utilities.addArchival(newJob, "${workspaceRelativeArtifactsArchive}")
                     }
-                    else if (architecture == 'arm') {
-                        // Then, using the same docker image, generate the CORE_ROOT layout using build-test.sh to
-                        // download the appropriate CoreFX packages.
-                        // Note that docker should not be necessary here, for the "generatelayoutonly" case, but we use it
-                        // just to be consistent with the "build.sh" case -- so both are run with the same environment.
-
-                        buildCommands += "${dockerCmd}\${WORKSPACE}/build-test.sh ${lowerConfiguration} ${architecture} cross generatelayoutonly"
-
-                        // ZIP up for the test job (created in the flow job code):
-                        // (1) the built CORE_ROOT, /home/user/coreclr/bin/tests/Linux.arm.Checked/Tests/Core_Root,
-                        //     used by runtest.sh as the "--coreOverlayDir" argument.
-                        // (2) the native parts of the test build: /home/user/coreclr/bin/obj/Linux.arm.Checked/tests,
-                        //     used by runtest.sh as the "--testNativeBinDir" argument.
-
-                        // These commands are assumed to be run from the root of the workspace.
-                        buildCommands += "zip -r coreroot.${lowerConfiguration}.zip ./bin/tests/Linux.${architecture}.${configuration}/Tests/Core_Root"
-                        buildCommands += "zip -r testnativebin.${lowerConfiguration}.zip ./bin/obj/Linux.${architecture}.${configuration}/tests"
-
-                        Utilities.addArchival(newJob, "coreroot.${lowerConfiguration}.zip,testnativebin.${lowerConfiguration}.zip", "")
-                    }
-                    else {
-                        assert architecture == 'arm64'
-
+                    else if (architecture == 'arm' || architecture == 'arm64') {
                         // Then, using the same docker image, build the tests and generate the CORE_ROOT layout.
-                        // Linux/arm64 does not use Windows-built tests.
+                        // Linux/arm(64) does not use Windows-built tests.
 
                         def testBuildOpts = ""
                         if (priority == '1') {
@@ -3907,9 +3885,9 @@ Constants.allScenarios.each { scenario ->
                     def inputTestsBuildName = null
 
                     // Ubuntu Arm64 jobs do the test build on the build machine, and thus don't depend on a Windows build.
-                    def isUbuntuArm64Job = ((os == "Ubuntu16.04") && (architecture == 'arm64'))
+                    def isUbuntuArmJob = ((os == "Ubuntu16.04") && ((architecture == 'arm64') || (architecture == 'arm'))
 
-                    if (!windowsArmJob && !doCoreFxTesting & !doCrossGenComparison && !isUbuntuArm64Job) {
+                    if (!windowsArmJob && !doCoreFxTesting & !doCrossGenComparison && !isUbuntuArmJob) {
                         def testBuildScenario = isInnerloopTestScenario(scenario) ? 'innerloop' : 'normal'
 
                         def inputTestsBuildArch = architecture
