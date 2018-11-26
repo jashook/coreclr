@@ -32,7 +32,6 @@ elif [ "$1" = "OSX" ]; then
         ./configure
         make -j ${PROC_COUNT}
         sudo make install
-        popd
     fi
     else
     echo "Must pass \"Linux\" or \"OSX\" as first argument."
