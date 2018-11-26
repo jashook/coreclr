@@ -31,7 +31,7 @@ elif [ "$1" = "OSX" ]; then
         ls
         ./configure
         make -j ${PROC_COUNT}
-        make install
+        sudo make install
         popd
     fi
     else
