@@ -10,15 +10,31 @@ if [ "$1" = "Linux" ]; then
         exit 1;
     fi
 elif [ "$1" = "OSX" ]; then
-    brew install icu4c openssl
-    if [ "$?" != "0" ]; then
-        exit 1;
+    if [ -x "$(command -v brew)" ]; then
+        brew install icu4c openssl
+         
+        if [ "$?" != "0" ]; then
+            exit 1;
+        fi
+        brew link --force icu4c
+        if [ "$?" != "0"]; then
+            exit 1;
+        fi
+    else
+        PROC_COUNT=`getconf _NPROCESSORS_ONLN`
+        mkdir /tmp/icu_build
+        pushd /tmp/icu_build
+        pwd
+        curl -O http://download.icu-project.org/files/icu4c/58.2/icu4c-58_2-src.tgz
+        tar xzf icu4c-58_2-src.tgz
+        cd icu/source
+        ls
+        ./configure
+        make -j ${PROC_COUNT}
+        make install
+        popd
     fi
-    brew link --force icu4c
-    if [ "$?" != "0"]; then
-        exit 1;
-    fi
-else
+    else
     echo "Must pass \"Linux\" or \"OSX\" as first argument."
     exit 1
 fi
