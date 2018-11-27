@@ -90,7 +90,13 @@ locate_llvm_exec() {
   then
     echo "$(command -v $llvm_prefix$1)"
   else
-    exit 1
+    if [ $OS = "Darwin" ]; then
+        if [${llvm_prefix} = "llvm-"]; then
+            exit 1
+        fi
+        llvm_prefix="llvm-"
+        $(locate_llvm_exec ar)
+    fi
   fi
 }
 
