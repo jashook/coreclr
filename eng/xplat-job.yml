@@ -22,9 +22,9 @@ jobs:
     queue:
       ${{ if eq(parameters.osGroup, 'Linux') }}:
         name: Hosted Ubuntu 1604
-      ${{ if and(eq(parameters.osGroup, 'Windows_NT'), ne(variables['System.TeamProject'], 'public')) }}:
+      ${{ if and(eq(parameters.osGroup, 'OSX'), ne(variables['System.TeamProject'], 'public')) }}:
         name: Hosted Mac Internal
-      ${{ if and(eq(parameters.osGroup, 'Windows_NT'), eq(variables['System.TeamProject'], 'public')) }}:
+      ${{ if and(eq(parameters.osGroup, 'OSX'), eq(variables['System.TeamProject'], 'public')) }}:
         name: Hosted MacOS
       ${{ if and(eq(parameters.osGroup, 'Windows_NT'), ne(variables['System.TeamProject'], 'public')) }}:
         name: dotnet-internal-temp
