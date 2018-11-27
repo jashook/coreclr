@@ -21,6 +21,14 @@ elif [ "$1" = "OSX" ]; then
             exit 1;
         fi
     else
+        # Setup clang
+        mkdir -p ~/bin
+        pushd ~/bin
+        curl -O http://releases.llvm.org/3.9.0/clang+llvm-3.9.0-x86_64-apple-darwin.tar.xz
+        tar xzf clang+llvm-3.9.0-x86_64-apple-darwin.tar.xz
+        echo PATH=~/bin/clang+llvm-3.9.0-x86_64-apple-darwin/bin >> ~/.bash_profile
+        source ~/.bash_profile
+
         PROC_COUNT=`getconf _NPROCESSORS_ONLN`
         mkdir /tmp/icu_build
         pushd /tmp/icu_build
@@ -32,6 +40,7 @@ elif [ "$1" = "OSX" ]; then
         ./configure
         make -j ${PROC_COUNT}
         sudo make install
+
     fi
     else
     echo "Must pass \"Linux\" or \"OSX\" as first argument."
