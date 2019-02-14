@@ -383,3 +383,8 @@ if ((CLR_CMAKE_PLATFORM_ARCH_I386 OR CLR_CMAKE_PLATFORM_ARCH_AMD64) AND WIN32)
     #   On amd64, build Linux/AMD64 altjit. This enables UNIX_AMD64_ABI.
     add_subdirectory(linuxnonjit)
 endif ()
+
+if (CLR_CMAKE_PLATFORM_ARCH_AMD64 AND NOT WIN32)
+    # On unix build an windows arm64 altjit
+    add_subdirectory(windowsnonjitarm64)
+endif ()

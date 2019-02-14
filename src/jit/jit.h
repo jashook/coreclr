@@ -204,11 +204,12 @@
 // Are we generating code to target Unix? This is true if we will run on Unix (_HOST_UNIX_ is defined).
 // It's also true if we are building an altjit targetting Unix, which we determine by checking if either
 // UNIX_AMD64_ABI or UNIX_X86_ABI is defined.
-#if defined(_HOST_UNIX_) || ((defined(UNIX_AMD64_ABI) || defined(UNIX_X86_ABI)) && defined(ALT_JIT))
+#if (!defined(_TARGET_WINDOWS_) && defined(_HOST_UNIX_)) || ((defined(UNIX_AMD64_ABI) || defined(UNIX_X86_ABI)) && defined(ALT_JIT))
 #define _TARGET_UNIX_
 #endif
 
-#ifndef _TARGET_UNIX_
+// Make sure not to redefine _TARGET_WINDOWS_ if it is explicitely passed.
+#if !defined(_TARGET_UNIX_) && !defined(_TARGET_WINDOWS_)
 #define _TARGET_WINDOWS_
 #endif // !_TARGET_UNIX_
 
