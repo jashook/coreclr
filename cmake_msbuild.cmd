@@ -17,9 +17,14 @@ if NOT '%ERRORLEVEL%' == '0' exit /b 1
 set Platform=
 set __ProjectDir=
 
-pushd %~dp0
-echo Running: msbuild.exe %*
-call msbuild.exe %*
+pushd %__IntermediatesDir%
+if defined CMakePath goto CallCmakeBuild
+
+:: Eval the output from set-cmake-path.ps1
+for /f "delims=" %%a in ('powershell -NoProfile -ExecutionPolicy ByPass "& "%basePath%\set-cmake-path.ps1""') do %%a
+
+:CallCmakeBuild
+call "%CMakePath%" --build . -j %NumberOfCores%
 popd
 if NOT [%ERRORLEVEL%]==[0] (
   exit /b 1

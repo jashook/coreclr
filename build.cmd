@@ -553,26 +553,16 @@ if %__BuildNative% EQU 1 (
 
     if defined __ConfigureOnly goto SkipNativeBuild
 
-    set __BuildLogRootName=CoreCLR
-    set __BuildLog="%__LogsDir%\!__BuildLogRootName!_%__BuildOS%__%__BuildArch%__%__BuildType%.log"
-    set __BuildWrn="%__LogsDir%\!__BuildLogRootName!_%__BuildOS%__%__BuildArch%__%__BuildType%.wrn"
-    set __BuildErr="%__LogsDir%\!__BuildLogRootName!_%__BuildOS%__%__BuildArch%__%__BuildType%.err"
-    set __MsbuildLog=/flp:Verbosity=normal;LogFile=!__BuildLog!
-    set __MsbuildWrn=/flp1:WarningsOnly;LogFile=!__BuildWrn!
-    set __MsbuildErr=/flp2:ErrorsOnly;LogFile=!__BuildErr!
-    set __Logging=!__MsbuildLog! !__MsbuildWrn! !__MsbuildErr!
+    pushd %__IntermediatesDir%
+    if defined CMakePath goto CallCmakeBuild
 
-    call %__ProjectDir%\cmake_msbuild.cmd /nologo /verbosity:minimal /clp:Summary /nodeReuse:false^
-      /l:BinClashLogger,Tools/net46/Microsoft.DotNet.Build.Tasks.dll;LogFile=binclash.log^
-      /p:RestoreDefaultOptimizationDataPackage=false /p:PortableBuild=true^
-      /p:UsePartialNGENOptimization=false /maxcpucount %__IntermediatesDir%\install.vcxproj^
-      !__Logging! /p:Configuration=%__BuildType% /p:Platform=%__BuildArch% %__CommonMSBuildArgs% %__UnprocessedBuildArgs%
+    :: Eval the output from set-cmake-path.ps1
+    for /f "delims=" %%a in ('powershell -NoProfile -ExecutionPolicy ByPass "& "%basePath%\set-cmake-path.ps1""') do %%a
 
-    if not !errorlevel! == 0 (
-        echo %__MsgPrefix%Error: native component build failed. Refer to the build log files for details:
-        echo     !__BuildLog!
-        echo     !__BuildWrn!
-        echo     !__BuildErr!
+    :CallCmakeBuild
+    call "%CMakePath%" --build . -j %NumberOfCores%
+    popd
+    if NOT [%ERRORLEVEL%]==[0] (
         exit /b 1
     )
 
