@@ -243,7 +243,7 @@ jobs:
         osIdentifier: Windows_NT
         helixQueues:
         # TODO: Due to the limited capacity of the machines in Windows.10.Arm64.Open queue limit this to CI builds and only to Windows_NT/arm
-        - ${{ if and(eq(variables['System.TeamProject'], 'public'), in(variables['Build.Reason'], 'IndividualCI', 'BatchedCI')) }}:
+        - ${{ if or(ne(variables['Build.DefinitionName'], 'coreclr-ci'), and(eq(variables['System.TeamProject'], 'public'), in(variables['Build.Reason'], 'IndividualCI', 'BatchedCI'))) }}:
           - Windows.10.Arm64.Open
         - ${{ if eq(variables['System.TeamProject'], 'internal') }}:
           - Windows.10.Arm64
