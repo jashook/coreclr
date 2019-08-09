@@ -313,6 +313,9 @@
         <ExcludeList Include="$(XunitTestBinBase)/baseservices/varargs/varargsupport_r/*">
             <Issue>Varargs supported on this platform</Issue>
         </ExcludeList>
+        <ExcludeList Include="$(XunitTestBinBase)/JIT/Stress/ABI/*">
+            <Issue>26101</Issue>
+        </ExcludeList>
     </ItemGroup>
 
     <!-- Windows arm32 specific excludes -->
