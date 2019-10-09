@@ -47,6 +47,7 @@ class CoreclrArguments:
                  require_built_test_dir=False,
                  require_built_core_root=False,
                  require_built_product_dir=False,
+                 default_arch="x64",
                  default_build_type="Debug"):
         """ Setup the args based on the argparser obj
 
