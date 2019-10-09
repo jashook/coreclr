@@ -330,6 +330,11 @@ int __cdecl main(int argc, char* argv[])
             }
         }
 
+        if (!jit->resetConfig(mc))
+        {
+            LogError("JIT can't reset enviroment");
+        }
+
         jittedCount++;
         st3.Start();
         res = jit->CompileMethod(mc, reader->GetMethodContextIndex(), collectThroughput);
@@ -348,6 +353,11 @@ int __cdecl main(int argc, char* argv[])
             // Note that the recorded CR is still stored in MC->originalCR
             crl    = mc->cr;
             mc->cr = new CompileResult();
+
+            if (!jit2->resetConfig(mc))
+            {
+                LogError("JIT2 can't reset enviroment");
+            }
 
             st4.Start();
             res2 = jit2->CompileMethod(mc, reader->GetMethodContextIndex(), collectThroughput);
@@ -536,6 +546,13 @@ int __cdecl main(int argc, char* argv[])
         }
 
         delete crl;
+
+        jit->mc = nullptr;
+        if (o.nameOfJit2 != nullptr)
+        {
+            jit2->mc = nullptr;
+        }
+        
         delete mc;
     }
     delete reader;

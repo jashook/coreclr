@@ -185,6 +185,6 @@ const wchar_t* JitHost::getStringConfigValue(const wchar_t* key)
 
 void JitHost::freeStringConfigValue(const wchar_t* value)
 {
-    jitInstance.mc->cr->AddCall("freeStringConfigValue");
+    if (jitInstance.mc != nullptr) jitInstance.mc->cr->AddCall("freeStringConfigValue");
     jitInstance.freeLongLivedArray((void*)value);
 }
