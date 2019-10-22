@@ -299,6 +299,19 @@ async def run_test(print_prefix, command, test_results, git_hash_value):
                     if not test_result["passed"]:
                         break
 
+                # Run test AOT
+                # env = os.environ.copy()
+                # env["COMPlus_TieredCompilation"] = "0"
+
+                # for item in range(10):
+                #     # Run for 10 times with TieredCompiltion off
+                #     test_result = await run_individual_test(print_prefix, command, env, git_hash_value)
+                #     add_test_result(test_result)
+
+                #     # Stop running flakey tests
+                #     if not test_result["passed"]:
+                #         break
+
     test_results[command[-1]] = test_runs
 
 def run_tests(tests, subproc_count):
