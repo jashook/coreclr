@@ -24,6 +24,7 @@ import math
 import multiprocessing
 import os
 import platform
+import pymongo
 import shutil
 import subprocess
 import sys
@@ -56,6 +57,8 @@ parser = argparse.ArgumentParser(description=description)
 
 parser.add_argument("-arch", dest="arch", nargs='?', default="x64", help="Arch, default is x64") 
 parser.add_argument("-build_type", dest="build_type", nargs='?', default="Checked", help="Build type, Checked is default")
+
+parser.add_argument("--subproc_count", dest="subproc_count", default=(multiprocessing.cpu_count() / 2) + 1, help="Change if running correctness testing.")
 
 ################################################################################
 # Classes
@@ -166,44 +169,187 @@ def get_tests(test_location, test_list=None):
     
     return test_list
 
-async def run_test(print_prefix, command, test_results, configuration=None):
+async def run_individual_test(print_prefix, command, env, git_hash_value):
     """ Run an individual test
     """
+    timeout = 60 * 10 # 60 seconds * amount of minutes
+
     start = time.perf_counter()
     proc = await asyncio.create_subprocess_shell(" ".join(command),
                                                 stdout=asyncio.subprocess.PIPE,
-                                                stderr=asyncio.subprocess.PIPE)
-                                                
-    stdout, stderr = await proc.communicate()
+                                                stderr=asyncio.subprocess.PIPE,
+                                                env=env)
+
+    stdout = None
+    stderr = None
+    timed_out = False
+    decoded_stdout = ""
+
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout)
+
+    except asyncio.TimeoutError:
+        proc.terminate()
+        timed_out = True
 
     elapsed_time = time.perf_counter() - start
-    print("{}({:.2f}s) - {}".format(print_prefix, elapsed_time, " ".join(command)))
+    return_code = -1
 
-    return_code = proc.returncode
-    decoded_stdout = stdout.decode("ascii")
+    if not timed_out:
+        print("{}({:.2f}s) - {}".format(print_prefix, elapsed_time, " ".join(command)))
 
-    if return_code != 0:
-        print(decoded_stdout)
+        return_code = proc.returncode
+        decoded_stdout = stdout.decode("utf-8")
+
+        if return_code != 0:
+            print(decoded_stdout)
+    else:
+        print("{}({:.2f}s) - TIMEOUT - {}".format(print_prefix, elapsed_time, " ".join(command)))
+
+    complus_vars = defaultdict(lambda: "")
+    for item in env:
+        if "COMPlus" in item:
+            complus_vars[item] = env[item]
 
     test_result = defaultdict(lambda: None)
 
     test_result["test_name"] = command[-1]
-    test_result["passed"] = return_code != 0
+    test_result["passed"] = return_code == 0
     test_result["output"] = decoded_stdout
     test_result["run_time"] = elapsed_time
+    test_result["env"] = complus_vars
+    test_result["date"] = datetime.datetime.now()
+    test_result["hash"] = git_hash_value
 
-    test_results[command[-1]] = test_result
+    return test_result
 
-def run_tests(tests, configuration=None):
+async def run_test(print_prefix, command, test_results, git_hash_value):
+    """ Run a test with a bunch of different configurations
+    """
+
+    env=os.environ
+
+    test_runs = []
+    test_result = await run_individual_test(print_prefix, command, env, git_hash_value)
+
+    def add_test_result(test_result):
+        if not test_result["passed"]:
+            return
+        
+        test_runs.append(test_result)
+
+    if "SKIPPING EXECUTION" in test_result["output"]:
+        # This test requires being run with TieredCompilation off.
+        # This test can only be run in Tier1 which.
+        
+        # Re-run with TieredCompliation off
+        env = os.environ.copy()
+        env["COMPlus_TieredCompilation"] = "0"
+
+        test_result = await run_individual_test(print_prefix, command, env, git_hash_value)
+        add_test_result(test_result)
+
+    else:
+        # We can run this test with multiple different configurations
+        
+        if "tracing" in test_result["test_name"] or "GC" in test_result["test_name"]:
+            add_test_result(test_result)
+
+        elif test_result["run_time"] > 10:
+            # We probably do not want to keep running this test.
+            add_test_result(test_result)
+            
+        else:
+            for item in range(10):
+                # Run for 10 times with TieredCompilation on
+                test_result = await run_individual_test(print_prefix, command, env, git_hash_value)
+                add_test_result(test_result)
+
+                # Stop running flakey tests
+                if not test_result["passed"]:
+                    break
+
+            if test_result["passed"]:
+                # If the test failed do not rerun. It is not interesting because we
+                # lost data.
+
+                # Re-run with MinOpts (This is Tier0 code only.)
+                env = os.environ.copy()
+                env["COMPlus_JitMinOpts"] = "1"
+
+                for item in range(10):
+                    # Run for 10 times with JitMinOpts on
+                    test_result = await run_individual_test(print_prefix, command, env, git_hash_value)
+                    add_test_result(test_result)
+
+                    # Stop running flakey tests
+                    if not test_result["passed"]:
+                        break
+
+                # Re-run with TieredCompilation off (This is Tier1 code only.)
+                env = os.environ.copy()
+                env["COMPlus_TieredCompilation"] = "0"
+
+                for item in range(10):
+                    # Run for 10 times with TieredCompiltion off
+                    test_result = await run_individual_test(print_prefix, command, env, git_hash_value)
+                    add_test_result(test_result)
+
+                    # Stop running flakey tests
+                    if not test_result["passed"]:
+                        break
+
+    test_results[command[-1]] = test_runs
+
+def run_tests(tests, subproc_count):
     """ Run the tests
     """
 
+    start = time.perf_counter()
     test_results = defaultdict(lambda: None)
+    git_hash_value = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode("utf-8").strip()
 
     async_helper = AsyncSubprocessHelper(tests, 
-                                         subproc_count=multiprocessing.cpu_count(), 
+                                         subproc_count=subproc_count, 
                                          verbose=True)
-    async_helper.run_to_completion(run_test, test_results, configuration)
+    async_helper.run_to_completion(run_test, test_results, git_hash_value)
+
+    elapsed_time = time.perf_counter() - start
+
+    passed_tests = []
+    failed_tests = []
+
+    for item in test_results:
+        item = test_results[item]
+
+        test_runs = [expanded_item for expanded_item in item]
+
+        for test_run in test_runs:
+            if not test_run["passed"]:
+                failed_tests.append(test_run)
+            else:
+                passed_tests.append(test_run)
+
+    print("")
+    print("-------------------------------------------------------------------")
+    print("Test run completed {:.2f}s".format(elapsed_time))
+    print("")
+    print("Total tests run: {}".format(len(passed_tests) + len(failed_tests)))
+    print("")
+    print("Passed: {}".format(len(passed_tests)))
+    print("Failed: {}".format(len(failed_tests)))
+
+    return passed_tests, failed_tests
+
+def upload_results(test_results):
+    """ Upload a set of test results to a database.
+    """
+
+    ip = "10.158.81.6"
+
+    client = pymongo.MongoClient("mongodb://10.158.81.6:27017/")
+    db = client["coreclr-performance"]
+    db.test_results.insert_many(test_results)
 
 ################################################################################
 # main
@@ -262,7 +408,9 @@ def main(args):
     print("")
 
     # Run tests without configuration
-    run_tests(commands)
+    passed_tests, failed_tests = run_tests(commands, args.subproc_count)
+
+    upload_results(passed_tests + failed_tests)
 
 ################################################################################
 # __main__
