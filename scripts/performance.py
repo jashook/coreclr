@@ -223,6 +223,88 @@ async def run_individual_test(print_prefix, command, env, git_hash_value):
 
     return test_result
 
+async def run_test_with_jit_order(print_prefix, command, test_results, git_hash_value):
+    """ run_test_with_jit_order
+
+        Notes:
+            Run through all of the tests with jit order set in order to
+            collect information on when/what methods are jitted.
+    """
+
+    env = os.environ.copy()
+    env["COMPlus_JitOrder"] = "1"
+
+    # Tiered compilation may give us interleaved jit order information.
+    env["COMPlus_TieredCompilation"] = "0"
+
+    test_result = await run_individual_test(print_prefix, command, env, git_hash_value)
+
+    output = test_result["output"]
+
+    first_line = True
+    methods = []
+    for line in output.split(os.linesep):
+        if not "|" in line:
+            continue
+        
+        line_split = line.split("|")
+        if len(line_split) == 18 or len(line_split) == 17:
+            try:
+                if first_line is True:
+                    first_line = False
+                else:
+                    method = defaultdict(lambda: None)
+                    method_name = line_split[-1].strip()
+
+                    method["method_token"] = line_split[0].strip()
+                    method["annotation"] = line_split[1].strip()
+                    method["region"] = line_split[2].strip()
+                    method["profile_call_count"] = line_split[3].strip()
+                    method["has_eh"] = line_split[4].strip() != ""
+                    method["frame_type"] = line_split[5].strip()
+                    method["has_loops"] = line_split[6].strip() != ""
+                    method["call_count"] = int(line_split[7].strip())
+                    method["indirect_call_count"] = int(line_split[8].strip())
+                    method["basic_block_count"] = int(line_split[9].strip())
+                    method["local_var_count"] = int(line_split[10].strip())
+
+                    next_index = 11
+                    is_min_opts = line_split[11].strip() == "MinOpts"
+                    if is_min_opts is True:
+                        method["min_opts"] = True
+                        method["tier"] = 0
+                    else:
+                        method["min_opts"] = False
+                        method["tier"] = 1
+
+                        method["assertion_prop_count"] = line_split[next_index].strip()
+
+                        next_index += 1
+                        method["cse_count"] = line_split[next_index].strip()
+
+                    next_index += 1
+                    method["register_allocator"] = line_split[next_index].strip()
+
+                    next_index += 1
+                    method["il_bytes"] = int(line_split[next_index].strip())
+
+                    next_index += 1
+                    method["hot_code_size"] = int(line_split[next_index].strip())
+
+                    next_index += 1
+                    method["cold_code_size"] = int(line_split[next_index].strip())
+
+                    methods.append(method)
+            except:
+                # We will end up here if there is are methods with interleaved 
+                # output.
+
+                # Just drop these methods.
+                pass
+
+    test_result["methods"] = methods
+    test_results[command[-1]] = test_result
+
 async def run_test(print_prefix, command, test_results, git_hash_value):
     """ Run a test with a bunch of different configurations
     """
@@ -322,10 +404,15 @@ def run_tests(tests, subproc_count):
     test_results = defaultdict(lambda: None)
     git_hash_value = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode("utf-8").strip()
 
-    async_helper = AsyncSubprocessHelper(tests, 
+    async_helper = AsyncSubprocessHelper(tests,
                                          subproc_count=subproc_count, 
                                          verbose=True)
-    async_helper.run_to_completion(run_test, test_results, git_hash_value)
+    async_helper.run_to_completion(run_test_with_jit_order, test_results, git_hash_value)
+
+    # Using the information collected with jit order decide which set of tests we will
+    # collect performance information on
+
+    async_helper.run_to_completion(run_test_with_jit_order, test_results, git_hash_value)
 
     elapsed_time = time.perf_counter() - start
 
