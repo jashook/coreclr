@@ -25,6 +25,7 @@ import multiprocessing
 import os
 import platform
 import pymongo
+import pyodbc
 import shutil
 import subprocess
 import sys
@@ -123,6 +124,8 @@ def filter_exclusions(issues_targets_file, coreclr_args):
     for item in split[1:]:
         condition = item.split("Condition=")[1].split(">")[0]
 
+        if condition == '"\'$(XunitTestBinBase)\' != \'\'"':
+            add_paths(item)
         if "'$(BuildArch)' == 'x64' and '$(TargetsWindows)' != 'true'" in condition and coreclr_args.host_os != "Windows_NT" and coreclr_args.arch == "x64":
             add_paths(item)
         if '$(TargetsWindows)' != 'true' in condition and coreclr_args.host_os != "Windows_NT":
@@ -169,7 +172,7 @@ def get_tests(test_location, test_list=None):
     
     return test_list
 
-async def run_individual_test(print_prefix, command, env, git_hash_value):
+async def run_individual_test(print_prefix, command, env, git_hash_value, git_date_time):
     """ Run an individual test
     """
     timeout = 60 * 10 # 60 seconds * amount of minutes
@@ -199,7 +202,11 @@ async def run_individual_test(print_prefix, command, env, git_hash_value):
         print("{}({:.2f}s) - {}".format(print_prefix, elapsed_time, " ".join(command)))
 
         return_code = proc.returncode
-        decoded_stdout = stdout.decode("utf-8")
+
+        try:
+            decoded_stdout = stdout.decode("utf-8")
+        except:
+            decoded_stdout = ""
 
         if return_code != 0:
             print(decoded_stdout)
@@ -213,17 +220,19 @@ async def run_individual_test(print_prefix, command, env, git_hash_value):
 
     test_result = defaultdict(lambda: None)
 
-    test_result["test_name"] = command[-1]
+    test_name = re.split("\w+\.\w+\.\w+{}".format(os.sep), command[-1])[1]
+
+    test_result["test_name"] = test_name
     test_result["passed"] = return_code == 0
-    test_result["output"] = decoded_stdout
+    test_result["output"] = decoded_stdout[:2048]
     test_result["run_time"] = elapsed_time
     test_result["env"] = complus_vars
-    test_result["date"] = datetime.datetime.now()
+    test_result["date"] = git_date_time
     test_result["hash"] = git_hash_value
 
     return test_result
 
-async def run_test_with_jit_order(print_prefix, command, test_results, git_hash_value):
+async def run_test_with_jit_order(print_prefix, command, test_results, git_hash_value, git_date_time):
     """ run_test_with_jit_order
 
         Notes:
@@ -237,14 +246,19 @@ async def run_test_with_jit_order(print_prefix, command, test_results, git_hash_
     # Tiered compilation may give us interleaved jit order information.
     env["COMPlus_TieredCompilation"] = "0"
 
-    test_result = await run_individual_test(print_prefix, command, env, git_hash_value)
+    test_result = await run_individual_test(print_prefix, command, env, git_hash_value, git_date_time)
 
     output = test_result["output"]
+    jit_order_output_removed = []
 
     first_line = True
     methods = []
     for line in output.split(os.linesep):
+        if "---------+" in line or "|  Profiled  |" in line:
+            continue
+
         if not "|" in line:
+            jit_order_output_removed.append(line)
             continue
         
         line_split = line.split("|")
@@ -256,7 +270,9 @@ async def run_test_with_jit_order(print_prefix, command, test_results, git_hash_
                     method = defaultdict(lambda: None)
                     method_name = line_split[-1].strip()
 
-                    method["method_token"] = line_split[0].strip()
+                    assert method_name !=  None
+
+                    method["method_id"] = line_split[0].strip()
                     method["annotation"] = line_split[1].strip()
                     method["region"] = line_split[2].strip()
                     method["profile_call_count"] = line_split[3].strip()
@@ -267,6 +283,7 @@ async def run_test_with_jit_order(print_prefix, command, test_results, git_hash_
                     method["indirect_call_count"] = int(line_split[8].strip())
                     method["basic_block_count"] = int(line_split[9].strip())
                     method["local_var_count"] = int(line_split[10].strip())
+                    method["method_name"] = method_name
 
                     next_index = 11
                     is_min_opts = line_split[11].strip() == "MinOpts"
@@ -277,10 +294,10 @@ async def run_test_with_jit_order(print_prefix, command, test_results, git_hash_
                         method["min_opts"] = False
                         method["tier"] = 1
 
-                        method["assertion_prop_count"] = line_split[next_index].strip()
+                        method["assertion_prop_count"] = int(line_split[next_index].strip())
 
                         next_index += 1
-                        method["cse_count"] = line_split[next_index].strip()
+                        method["cse_count"] = int(line_split[next_index].strip())
 
                     next_index += 1
                     method["register_allocator"] = line_split[next_index].strip()
@@ -302,17 +319,20 @@ async def run_test_with_jit_order(print_prefix, command, test_results, git_hash_
                 # Just drop these methods.
                 pass
 
+    jit_order_output_removed = os.linesep.join(jit_order_output_removed)
+    test_result["output"] = jit_order_output_removed
+
     test_result["methods"] = methods
     test_results[command[-1]] = test_result
 
-async def run_test(print_prefix, command, test_results, git_hash_value):
+async def run_test(print_prefix, command, test_results, git_hash_value, git_date_time):
     """ Run a test with a bunch of different configurations
     """
 
     env=os.environ
 
     test_runs = []
-    test_result = await run_individual_test(print_prefix, command, env, git_hash_value)
+    test_result = await run_individual_test(print_prefix, command, env, git_hash_value, git_date_time)
 
     def add_test_result(test_result):
         if not test_result["passed"]:
@@ -328,7 +348,7 @@ async def run_test(print_prefix, command, test_results, git_hash_value):
         env = os.environ.copy()
         env["COMPlus_TieredCompilation"] = "0"
 
-        test_result = await run_individual_test(print_prefix, command, env, git_hash_value)
+        test_result = await run_individual_test(print_prefix, command, env, git_hash_value, git_date_time)
         add_test_result(test_result)
 
     else:
@@ -344,7 +364,7 @@ async def run_test(print_prefix, command, test_results, git_hash_value):
         else:
             for item in range(10):
                 # Run for 10 times with TieredCompilation on
-                test_result = await run_individual_test(print_prefix, command, env, git_hash_value)
+                test_result = await run_individual_test(print_prefix, command, env, git_hash_value, git_date_time)
                 add_test_result(test_result)
 
                 # Stop running flakey tests
@@ -361,7 +381,7 @@ async def run_test(print_prefix, command, test_results, git_hash_value):
 
                 for item in range(10):
                     # Run for 10 times with JitMinOpts on
-                    test_result = await run_individual_test(print_prefix, command, env, git_hash_value)
+                    test_result = await run_individual_test(print_prefix, command, env, git_hash_value, git_date_time)
                     add_test_result(test_result)
 
                     # Stop running flakey tests
@@ -374,7 +394,7 @@ async def run_test(print_prefix, command, test_results, git_hash_value):
 
                 for item in range(10):
                     # Run for 10 times with TieredCompiltion off
-                    test_result = await run_individual_test(print_prefix, command, env, git_hash_value)
+                    test_result = await run_individual_test(print_prefix, command, env, git_hash_value, git_date_time)
                     add_test_result(test_result)
 
                     # Stop running flakey tests
@@ -387,7 +407,7 @@ async def run_test(print_prefix, command, test_results, git_hash_value):
 
                 # for item in range(10):
                 #     # Run for 10 times with TieredCompiltion off
-                #     test_result = await run_individual_test(print_prefix, command, env, git_hash_value)
+                #     test_result = await run_individual_test(print_prefix, command, env, git_hash_value, git_date_time)
                 #     add_test_result(test_result)
 
                 #     # Stop running flakey tests
@@ -403,14 +423,43 @@ def run_tests(tests, subproc_count):
     start = time.perf_counter()
     test_results = defaultdict(lambda: None)
     git_hash_value = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode("utf-8").strip()
+    git_date_time = subprocess.check_output(["git", "show", "-s", "--format=%ci", git_hash_value]).decode("utf-8").strip()
 
-    async_helper = AsyncSubprocessHelper(tests,
-                                         subproc_count=subproc_count, 
+    # Remove timezone
+    git_date_time = git_date_time.split(" -")[0]
+    git_date_time = datetime.datetime.strptime(git_date_time, "%Y-%m-%d %H:%M:%S")
+
+    async_helper = AsyncSubprocessHelper(tests[:10],
+                                         subproc_count=subproc_count * 2, 
                                          verbose=True)
-    async_helper.run_to_completion(run_test_with_jit_order, test_results, git_hash_value)
+    async_helper.run_to_completion(run_test_with_jit_order, test_results, git_hash_value, git_date_time)
 
     # Using the information collected with jit order decide which set of tests we will
     # collect performance information on
+
+    elapsed_time = time.perf_counter() - start
+
+    passed_tests = []
+    failed_tests = []
+
+    for item in test_results:
+        item = test_results[item]
+
+        if not item["passed"]:
+            failed_tests.append(item)
+        else:
+            passed_tests.append(item)
+
+    print("")
+    print("-------------------------------------------------------------------")
+    print("Test run completed {:.2f}s".format(elapsed_time))
+    print("")
+    print("Total tests run: {}".format(len(passed_tests) + len(failed_tests)))
+    print("")
+    print("Passed: {}".format(len(passed_tests)))
+    print("Failed: {}".format(len(failed_tests)))
+
+    upload_results(passed_tests + failed_tests, verbose=False)
 
     async_helper.run_to_completion(run_test_with_jit_order, test_results, git_hash_value)
 
@@ -441,15 +490,86 @@ def run_tests(tests, subproc_count):
 
     return passed_tests, failed_tests
 
-def upload_results(test_results):
+def upload_results(test_results, verbose=True):
     """ Upload a set of test results to a database.
     """
 
-    ip = "10.158.81.6"
+    server = "coreclr-performance.database.windows.net"
+    database = "coreclr-performance" 
+    username = "robox"
+    password = os.environ["robox-pw"]
 
-    client = pymongo.MongoClient("mongodb://10.158.81.6:27017/")
-    db = client["coreclr-performance"]
-    db.test_results.insert_many(test_results)
+    if password == "":
+        print("Unable to upload data, robox-pw is unset.")
+        return
+
+    connection = pyodbc.connect('DRIVER={ODBC Driver 17 for SQL Server};SERVER='+server+';DATABASE='+database+';UID='+username+';PWD='+ password)
+    cursor = connection.cursor()
+
+    def execute_command(command):
+        if verbose is True:
+            print(command)
+
+        cursor.execute(command)
+
+        if not "INSERT" in command:
+            return cursor.fetchone()
+
+    for item in test_results:
+        if type(item) == str:
+            item = test_results[item]
+
+        # Insert the high level test data first to get its key
+        passed = 1 if item["passed"] is True else 0
+        output = item["output"].replace("'", '"')
+        command = "EXEC add_test @TestName = '{}', @Passed = {}, @TestOutput = '{}', @RunTime = {}, @GitHash = '{}', @Date = '{}'".format(item["test_name"], passed, output, item["run_time"], item["hash"], item["date"])
+        result = execute_command(command)
+
+        foreign_key = result[0]
+
+        # Upload the environment data
+        for env_var in item["env"]:
+            insert_command = "INSERT env_data (key_name, env_value, test) VALUES ('{}', '{}', {})".format(env_var, item["env"][env_var], foreign_key)
+            execute_command(insert_command)
+
+        # Upload all of the methods for a specific test results
+        for method in item["methods"]:
+
+            has_eh = 1 if method["has_eh"] is True else 0
+            has_loops = 1 if method["has_loops"] is True else 0
+            min_opts = 1 if method["min_opts"] is True else 0
+
+            insert_command = "INSERT methods (method_id, annotation, region, profile_call_count, has_eh, frame_type, has_loops, call_count, indirect_call_count, basic_block_count, local_var_count, min_opts, tier, assertion_prop_count, cse_count, register_allocator, il_bytes, hot_code_size, cold_code_size, method_name, test)"
+
+            insert_command = "{} VALUES ('{}', '{}', '{}', '{}', {}, '{}', {}, {}, {}, {}, {}, {}, {}".format(insert_command,
+                                                                                                              method["method_id"],
+                                                                                                              method["annotation"],
+                                                                                                              method["region"],
+                                                                                                              method["profile_call_count"],
+                                                                                                              has_eh,
+                                                                                                              method["frame_type"],
+                                                                                                              has_loops,
+                                                                                                              method["call_count"],
+                                                                                                              method["indirect_call_count"],
+                                                                                                              method["basic_block_count"],
+                                                                                                              method["local_var_count"],
+                                                                                                              min_opts,
+                                                                                                              method["tier"])
+
+            if "assertion_prop_count" in method.keys():
+                insert_command = "{}, {}, {}".format(insert_command, method["assertion_prop_count"], method["cse_count"])
+            else:
+                insert_command = "{}, '{}', '{}'".format(insert_command, "NULL", "NULL")
+            
+            insert_command = "{},'{}', {}, {}, {}, '{}', {})".format(insert_command, 
+                                                                  method["register_allocator"], 
+                                                                  method["il_bytes"], 
+                                                                  method["hot_code_size"], 
+                                                                  method["cold_code_size"], 
+                                                                  method["method_name"],
+                                                                  foreign_key)
+            execute_command(insert_command)
+        
 
 ################################################################################
 # main
@@ -482,6 +602,14 @@ def main(args):
 
     for item in tests:
         if not item in exclusions:
+            filtered_tests.append(item)
+
+    tests = filtered_tests
+    filtered_tests = []
+
+    # Remove all tracing* and GC* tests
+    for item in tests:
+        if not "GC" in item and not "tracing" in item:
             filtered_tests.append(item)
 
     tests = filtered_tests
