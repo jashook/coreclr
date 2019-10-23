@@ -220,7 +220,11 @@ async def run_individual_test(print_prefix, command, env, git_hash_value, git_da
 
     test_result = defaultdict(lambda: None)
 
-    test_name = re.split("\w+\.\w+\.\w+{}".format(os.sep), command[-1])[1]
+    sep_character = os.sep
+    if sep_character == "\\":
+        sep_character = "\\{}".format(os.sep)
+
+    test_name = re.split("\w+\.\w+\.\w+{}".format(sep_character), command[-1])[1]
 
     test_result["test_name"] = test_name
     test_result["passed"] = return_code == 0
@@ -458,8 +462,12 @@ def run_tests(tests, subproc_count):
     print("")
     print("Passed: {}".format(len(passed_tests)))
     print("Failed: {}".format(len(failed_tests)))
-
+ 
+    start = time.perf_counter()
     upload_results(passed_tests + failed_tests, verbose=False)
+    elapsed_time = time.perf_counter() - start
+
+    print("Finished uploading ({}s)".format(elapsed_time))
 
     async_helper.run_to_completion(run_test_with_jit_order, test_results, git_hash_value)
 
@@ -503,7 +511,14 @@ def upload_results(test_results, verbose=True):
         print("Unable to upload data, robox-pw is unset.")
         return
 
-    connection = pyodbc.connect('DRIVER={ODBC Driver 17 for SQL Server};SERVER='+server+';DATABASE='+database+';UID='+username+';PWD='+ password)
+    try:
+        connection = pyodbc.connect('DRIVER={ODBC Driver 17 for SQL Server};SERVER='+server+';DATABASE='+database+';UID='+username+';PWD='+ password)
+    except:
+        print("Failed to connect please verify the driver is installed.")
+        print("https://docs.microsoft.com/en-us/sql/connect/odbc/windows/system-requirements-installation-and-driver-files?view=sql-server-ver15#installing-microsoft-odbc-driver-for-sql-server")
+
+        return
+
     cursor = connection.cursor()
 
     def execute_command(command):
@@ -512,8 +527,14 @@ def upload_results(test_results, verbose=True):
 
         cursor.execute(command)
 
+        ret_val = None
+
         if not "INSERT" in command:
-            return cursor.fetchone()
+            ret_val = cursor.fetchone()
+
+        cursor.commit()
+
+        return ret_val
 
     for item in test_results:
         if type(item) == str:
@@ -559,7 +580,7 @@ def upload_results(test_results, verbose=True):
             if "assertion_prop_count" in method.keys():
                 insert_command = "{}, {}, {}".format(insert_command, method["assertion_prop_count"], method["cse_count"])
             else:
-                insert_command = "{}, '{}', '{}'".format(insert_command, "NULL", "NULL")
+                insert_command = "{}, {}, {}".format(insert_command, "NULL", "NULL")
             
             insert_command = "{},'{}', {}, {}, {}, '{}', {})".format(insert_command, 
                                                                   method["register_allocator"], 
