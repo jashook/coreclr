@@ -47,11 +47,13 @@ class SqlHelper:
         while len(self.values) >= 1000:
             batch = self.values[:1000]
 
-            if len(self.values) > 1000:
-                values = self.values[1000:]
+            if len(self.values) >= 1000:
+                self.values = self.values[1000:]
 
             start = time.perf_counter()
-            self.execute_command(self.create_command(batch))
+
+            command = self.create_command(batch)
+            self.execute_command(command)
             elapsed_time = time.perf_counter() - start
 
     def __empty_queue__(self):
@@ -74,11 +76,11 @@ class SqlHelper:
             self.__drain_queue__()
 
     def create_command(self, batch):
-        assert len(self.values) <= 1000
+        assert len(batch) <= 1000
         command = self.sql_statement.split("VALUES ")[0]
         
         new_list = []
-        for insert_list in self.values:
+        for insert_list in batch:
             new_values = [str(val) for val in insert_list]
             blah = []
             for index, val in enumerate(new_values):
