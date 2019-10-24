@@ -18,12 +18,14 @@
 
 import argparse
 import asyncio
+import cpuinfo
 import datetime
 import json
 import math
 import multiprocessing
 import os
 import platform
+import psutil
 import pymongo
 import pyodbc
 import shutil
@@ -43,8 +45,9 @@ import xml.etree.ElementTree
 from collections import defaultdict
 from sys import platform as _platform
 
-from coreclr_arguments import *
 from async_subprocess_helper import *
+from coreclr_arguments import *
+from sql_helper import *
 
 ################################################################################
 # Argument Parser
@@ -247,9 +250,6 @@ async def run_test_with_jit_order(print_prefix, command, test_results, git_hash_
     env = os.environ.copy()
     env["COMPlus_JitOrder"] = "1"
 
-    # Tiered compilation may give us interleaved jit order information.
-    env["COMPlus_TieredCompilation"] = "0"
-
     test_result = await run_individual_test(print_prefix, command, env, git_hash_value, git_date_time)
 
     output = test_result["output"]
@@ -420,7 +420,7 @@ async def run_test(print_prefix, command, test_results, git_hash_value, git_date
 
     test_results[command[-1]] = test_runs
 
-def run_tests(tests, subproc_count):
+def run_tests(tests, coreclr_args, subproc_count):
     """ Run the tests
     """
 
@@ -433,7 +433,7 @@ def run_tests(tests, subproc_count):
     git_date_time = git_date_time.split(" -")[0]
     git_date_time = datetime.datetime.strptime(git_date_time, "%Y-%m-%d %H:%M:%S")
 
-    async_helper = AsyncSubprocessHelper(tests[:10],
+    async_helper = AsyncSubprocessHelper(tests,
                                          subproc_count=subproc_count * 2, 
                                          verbose=True)
     async_helper.run_to_completion(run_test_with_jit_order, test_results, git_hash_value, git_date_time)
@@ -464,7 +464,7 @@ def run_tests(tests, subproc_count):
     print("Failed: {}".format(len(failed_tests)))
  
     start = time.perf_counter()
-    upload_results(passed_tests + failed_tests, verbose=False)
+    upload_results(passed_tests + failed_tests, coreclr_args, git_hash_value, git_date_time, verbose=False)
     elapsed_time = time.perf_counter() - start
 
     print("Finished uploading ({}s)".format(elapsed_time))
@@ -498,7 +498,7 @@ def run_tests(tests, subproc_count):
 
     return passed_tests, failed_tests
 
-def upload_results(test_results, verbose=True):
+def upload_results(test_results, coreclr_args, git_commit, git_commit_date, verbose=True):
     """ Upload a set of test results to a database.
     """
 
@@ -510,6 +510,8 @@ def upload_results(test_results, verbose=True):
     if password == "":
         print("Unable to upload data, robox-pw is unset.")
         return
+
+    connection = None
 
     try:
         connection = pyodbc.connect('DRIVER={ODBC Driver 17 for SQL Server};SERVER='+server+';DATABASE='+database+';UID='+username+';PWD='+ password)
@@ -528,69 +530,106 @@ def upload_results(test_results, verbose=True):
         cursor.execute(command)
 
         ret_val = None
-
         if not "INSERT" in command:
             ret_val = cursor.fetchone()
 
         cursor.commit()
-
         return ret_val
 
-    for item in test_results:
-        if type(item) == str:
-            item = test_results[item]
+    hostname = platform.node()
+    cpu = cpuinfo.get_cpu_info()
 
-        # Insert the high level test data first to get its key
-        passed = 1 if item["passed"] is True else 0
-        output = item["output"].replace("'", '"')
-        command = "EXEC add_test @TestName = '{}', @Passed = {}, @TestOutput = '{}', @RunTime = {}, @GitHash = '{}', @Date = '{}'".format(item["test_name"], passed, output, item["run_time"], item["hash"], item["date"])
-        result = execute_command(command)
+    processor = cpu['brand']
+    arch = cpu["raw_arch_string"]
+    host_os = coreclr_args.host_os
 
-        foreign_key = result[0]
+    test_arch = coreclr_args.arch
 
-        # Upload the environment data
-        for env_var in item["env"]:
-            insert_command = "INSERT env_data (key_name, env_value, test) VALUES ('{}', '{}', {})".format(env_var, item["env"][env_var], foreign_key)
-            execute_command(insert_command)
+    mem = psutil.virtual_memory()
+    memory = int(mem.total / (1024 * 1024 * 1024))
+    command = "EXEC add_test_run @HostName = '{}', @Processor = '{}', @Memory = {}, @HostOs = '{}', @HostArch = '{}', @TestRunArch = '{}', @Commit = '{}', @CommitDate = '{}'".format(hostname,
+                                                                                                                                                                                         processor,
+                                                                                                                                                                                         memory,
+                                                                                                                                                                                         host_os,
+                                                                                                                                                                                         arch,
+                                                                                                                                                                                         test_arch,
+                                                                                                                                                                                         git_commit,
+                                                                                                                                                                                         git_commit_date)
 
-        # Upload all of the methods for a specific test results
-        for method in item["methods"]:
+    test_run_id = execute_command(command)[0]
 
-            has_eh = 1 if method["has_eh"] is True else 0
-            has_loops = 1 if method["has_loops"] is True else 0
-            min_opts = 1 if method["min_opts"] is True else 0
+    total = len(test_results)
+    methods_command = "INSERT methods (method_id, annotation, region, profile_call_count, has_eh, frame_type, has_loops, call_count, indirect_call_count, basic_block_count, local_var_count, min_opts, tier, assertion_prop_count, cse_count, register_allocator, il_bytes, hot_code_size, cold_code_size, method_name, test) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 
-            insert_command = "INSERT methods (method_id, annotation, region, profile_call_count, has_eh, frame_type, has_loops, call_count, indirect_call_count, basic_block_count, local_var_count, min_opts, tier, assertion_prop_count, cse_count, register_allocator, il_bytes, hot_code_size, cold_code_size, method_name, test)"
+    # Upload the environment data
+    env_data_insert_statement = "INSERT env_data (key_name, env_value, test) VALUES (?, ?, ?)"
 
-            insert_command = "{} VALUES ('{}', '{}', '{}', '{}', {}, '{}', {}, {}, {}, {}, {}, {}, {}".format(insert_command,
-                                                                                                              method["method_id"],
-                                                                                                              method["annotation"],
-                                                                                                              method["region"],
-                                                                                                              method["profile_call_count"],
-                                                                                                              has_eh,
-                                                                                                              method["frame_type"],
-                                                                                                              has_loops,
-                                                                                                              method["call_count"],
-                                                                                                              method["indirect_call_count"],
-                                                                                                              method["basic_block_count"],
-                                                                                                              method["local_var_count"],
-                                                                                                              min_opts,
-                                                                                                              method["tier"])
+    with SqlHelper(cursor, env_data_insert_statement, verbose=verbose) as env_sql_command:
+        with SqlHelper(cursor, methods_command, verbose=verbose) as method_sql_command:
+            for test_index, item in enumerate(test_results):
+                start = time.perf_counter()
 
-            if "assertion_prop_count" in method.keys():
-                insert_command = "{}, {}, {}".format(insert_command, method["assertion_prop_count"], method["cse_count"])
-            else:
-                insert_command = "{}, {}, {}".format(insert_command, "NULL", "NULL")
-            
-            insert_command = "{},'{}', {}, {}, {}, '{}', {})".format(insert_command, 
-                                                                  method["register_allocator"], 
-                                                                  method["il_bytes"], 
-                                                                  method["hot_code_size"], 
-                                                                  method["cold_code_size"], 
-                                                                  method["method_name"],
-                                                                  foreign_key)
-            execute_command(insert_command)
-        
+                if type(item) == str:
+                    item = test_results[item]
+
+                # Insert the high level test data first to get its key
+                passed = 1 if item["passed"] is True else 0
+                output = item["output"].replace("'", '"')
+                command = "EXEC add_test @TestName = '{}', @Passed = {}, @TestOutput = '{}', @RunTime = {}, @GitHash = '{}', @Date = '{}', @TestRunId = '{}'".format(item["test_name"], passed, output, item["run_time"], item["hash"], item["date"], test_run_id)
+                result = execute_command(command)
+
+                foreign_key = result[0]
+
+                for env_var in item["env"]:
+                    env_sql_command.add_data((env_var, item["env"][env_var], foreign_key))
+
+                if len(item["methods"]) > 0:
+                    # Upload all of the methods for a specific test results
+                    for method in item["methods"]:
+                        value = []
+                        has_eh = 1 if method["has_eh"] is True else 0
+                        has_loops = 1 if method["has_loops"] is True else 0
+                        min_opts = 1 if method["min_opts"] is True else 0
+
+                        
+                        value.append(method["method_id"])
+                        value.append(method["annotation"])
+                        value.append(method["region"])
+                        value.append(method["profile_call_count"])
+                        value.append(has_eh)
+                        value.append(method["frame_type"])
+                        value.append(has_loops)
+                        value.append(method["call_count"])
+                        value.append(method["indirect_call_count"])
+                        value.append(method["basic_block_count"])
+                        value.append(method["local_var_count"])
+                        value.append(min_opts)
+                        value.append(method["tier"])
+
+                        if "assertion_prop_count" in method.keys():
+                            value.append(method["assertion_prop_count"])
+                            value.append(method["cse_count"])
+                        else:
+                            value.append(-1)
+                            value.append(-1)
+                        
+                        value.append(method["register_allocator"])
+                        value.append(method["il_bytes"])
+                        value.append(method["hot_code_size"])
+                        value.append(method["cold_code_size"])
+                        value.append(method["method_name"])
+                        value.append(foreign_key)
+
+                        method_sql_command.add_data(value)
+                        
+                    elapsed_time = time.perf_counter() - start
+
+                    print("[{}:{}] - Uploaded ({:.2f}s)".format(test_index, total, elapsed_time))
+
+    print("Methods: Uploaded ({:.2f}s)".format(elapsed_time))
+
+    cursor.close()
+    connection.close()
 
 ################################################################################
 # main
@@ -657,7 +696,7 @@ def main(args):
     print("")
 
     # Run tests without configuration
-    passed_tests, failed_tests = run_tests(commands, args.subproc_count)
+    passed_tests, failed_tests = run_tests(commands, coreclr_args, args.subproc_count)
 
     upload_results(passed_tests + failed_tests)
 
