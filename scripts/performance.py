@@ -563,7 +563,7 @@ def upload_results(test_results, coreclr_args, git_commit, git_commit_date, verb
     test_run_id = execute_command(command)[0]
 
     total = len(test_results)
-    methods_command = "INSERT methods (method_id, annotation, region, profile_call_count, has_eh, frame_type, has_loops, call_count, indirect_call_count, basic_block_count, local_var_count, min_opts, tier, assertion_prop_count, cse_count, register_allocator, il_bytes, hot_code_size, cold_code_size, method_name, test, test_run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    methods_command = "INSERT methods (method_id, annotation, region, profile_call_count, has_eh, frame_type, has_loops, call_count, indirect_call_count, basic_block_count, local_var_count, min_opts, tier, assertion_prop_count, cse_count, register_allocator, il_bytes, hot_code_size, cold_code_size, method_name, test) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 
     # Upload the environment data
     env_data_insert_statement = "INSERT env_data (key_name, env_value, test) VALUES (?, ?, ?)"
@@ -623,7 +623,6 @@ def upload_results(test_results, coreclr_args, git_commit, git_commit_date, verb
                         value.append(method["cold_code_size"])
                         value.append(method["method_name"])
                         value.append(foreign_key)
-                        value.append(test_run_id)
 
                         method_sql_command.add_data(value)
                         
