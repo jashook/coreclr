@@ -231,7 +231,7 @@ async def run_individual_test(print_prefix, command, env, git_hash_value, git_da
 
     test_result["test_name"] = test_name
     test_result["passed"] = return_code == 0
-    test_result["output"] = decoded_stdout[:2048]
+    test_result["output"] = decoded_stdout
     test_result["run_time"] = elapsed_time
     test_result["env"] = complus_vars
     test_result["date"] = git_date_time
@@ -325,6 +325,10 @@ async def run_test_with_jit_order(print_prefix, command, test_results, git_hash_
 
     jit_order_output_removed = os.linesep.join(jit_order_output_removed)
     test_result["output"] = jit_order_output_removed
+
+    if len(test_result) > 2048:
+        print("Shortening output to store later.")
+        test_result["output"] = test_result[:2048]
 
     test_result["methods"] = methods
     test_results[command[-1]] = test_result
@@ -559,7 +563,7 @@ def upload_results(test_results, coreclr_args, git_commit, git_commit_date, verb
     test_run_id = execute_command(command)[0]
 
     total = len(test_results)
-    methods_command = "INSERT methods (method_id, annotation, region, profile_call_count, has_eh, frame_type, has_loops, call_count, indirect_call_count, basic_block_count, local_var_count, min_opts, tier, assertion_prop_count, cse_count, register_allocator, il_bytes, hot_code_size, cold_code_size, method_name, test) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    methods_command = "INSERT methods (method_id, annotation, region, profile_call_count, has_eh, frame_type, has_loops, call_count, indirect_call_count, basic_block_count, local_var_count, min_opts, tier, assertion_prop_count, cse_count, register_allocator, il_bytes, hot_code_size, cold_code_size, method_name, test, test_run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 
     # Upload the environment data
     env_data_insert_statement = "INSERT env_data (key_name, env_value, test) VALUES (?, ?, ?)"
@@ -619,6 +623,7 @@ def upload_results(test_results, coreclr_args, git_commit, git_commit_date, verb
                         value.append(method["cold_code_size"])
                         value.append(method["method_name"])
                         value.append(foreign_key)
+                        value.append(test_run_id)
 
                         method_sql_command.add_data(value)
                         
