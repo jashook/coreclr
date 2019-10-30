@@ -277,6 +277,10 @@ async def run_test_with_jit_order(print_prefix, command, test_results, git_hash_
                     assert method_name !=  None
 
                     method["method_id"] = line_split[0].strip()
+
+                    if " " in method["method_id"] or not method["method_id"].isalnum():
+                        raise Exception("Error, invalid method id.")
+
                     method["annotation"] = line_split[1].strip()
                     method["region"] = line_split[2].strip()
                     method["profile_call_count"] = line_split[3].strip()
@@ -596,7 +600,11 @@ def upload_results(test_results, coreclr_args, git_commit, git_commit_date, verb
                         min_opts = 1 if method["min_opts"] is True else 0
 
                         
+                        if " " in method["method_id"]:
+                            raise Exception("Invalid method id.")
+
                         value.append(method["method_id"])
+
                         value.append(method["annotation"])
                         value.append(method["region"])
                         value.append(method["profile_call_count"])
