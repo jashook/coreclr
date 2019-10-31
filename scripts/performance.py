@@ -62,7 +62,12 @@ parser = argparse.ArgumentParser(description=description)
 parser.add_argument("-arch", dest="arch", nargs='?', default="x64", help="Arch, default is x64") 
 parser.add_argument("-build_type", dest="build_type", nargs='?', default="Checked", help="Build type, Checked is default")
 
+parser.add_argument("-pmi_location", dest="pmi_location", default=None, help="Change if running correctness testing.")
 parser.add_argument("--subproc_count", dest="subproc_count", default=(multiprocessing.cpu_count() / 2) + 1, help="Change if running correctness testing.")
+
+
+parser.add_argument("--skip_jit_order_run", dest="skip_jit_order_run", default=False, action="store_true", help="Change if running correctness testing.")
+parser.add_argument("--collect_pmi_etw_information", dest="collect_pmi_etw_information", default=False, action="store_true", help="Change if running correctness testing.")
 
 ################################################################################
 # Classes
@@ -337,6 +342,76 @@ async def run_test_with_jit_order(print_prefix, command, test_results, git_hash_
     test_result["methods"] = methods
     test_results[command[-1]] = test_result
 
+async def run_test_with_pmi(print_prefix, command, test_results, git_hash_value, git_date_time):
+
+    env = os.environ.copy()
+
+    test_result = await run_individual_test(print_prefix, command, env, git_hash_value, git_date_time)
+
+    events = []
+
+    # parse the output.
+    if "@!@!" in test_result["output"]:
+        lines = test_result["output"].split(os.sep)
+        for line in lines:
+            event = defaultdict(lambda: None)
+
+            if "JITTracing" in line:
+                line = line.split("JITTracing: ")[1]
+                values = line.split("@!@!@")
+                
+                event["type"] = values[0]
+                inline_event = "MethodJitInlining" in event["type"]
+
+                assert values[1] == "MethodBeingCompiledNamespace"
+                event["namespace"] = values[2]
+
+                assert values[3] == "MethodBeingCompiledName"
+                event["method_name"] = values[4]
+
+                assert values[5] == "MethodBeingCompiledNameSignature"
+                event["signature"] = values[6]
+
+                if inline_event:
+                    assert values[13] == "InlineeNamespace"
+                    event["method_candidate_namespace"] = values[14]
+
+                    assert values[15] == "InlineeName"
+                    event["method_candidate_name"] = values[16]
+
+                    assert values[17] == "InlineeNameSignature"
+                    event["method_candidate_signature"] = values[18]
+
+                    if event["type"] != "MethodJitInliningSucceeded":
+                        assert values[19] == "FailAlways"
+                        event["always_fails"] = values[20]
+
+                        assert values[21] == "FailReason"
+                        event["fail_reason"] = values[22]
+
+                else:
+                    assert values[13] == "CalleeNamespace"
+                    event["method_candidate_namespace"] = values[14]
+
+                    assert values[15] == "CalleeName"
+                    event["method_candidate_name"] = values[16]
+
+                    assert values[17] == "CalleeNameSignature"
+                    event["method_candidate_signature"] = values[18]
+
+                    assert values[19] == "TailPrefix"
+                    event["tail_prefix"] = values[20]
+
+                    if event["type"] != "MethodJitTailCallSucceeded":
+
+                        assert values[21] == "FailReason"
+                        event["fail_reason"] = values[22]
+                
+                events.append(event)
+
+    test_result["events"] = events
+    test_results[command[-1]] = test_result
+
 async def run_test(print_prefix, command, test_results, git_hash_value, git_date_time):
     """ Run a test with a bunch of different configurations
     """
@@ -432,7 +507,6 @@ def run_tests(tests, coreclr_args, subproc_count):
     """ Run the tests
     """
 
-    start = time.perf_counter()
     test_results = defaultdict(lambda: None)
     git_hash_value = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode("utf-8").strip()
     git_date_time = subprocess.check_output(["git", "show", "-s", "--format=%ci", git_hash_value]).decode("utf-8").strip()
@@ -441,41 +515,94 @@ def run_tests(tests, coreclr_args, subproc_count):
     git_date_time = git_date_time.split(" -")[0]
     git_date_time = datetime.datetime.strptime(git_date_time, "%Y-%m-%d %H:%M:%S")
 
-    async_helper = AsyncSubprocessHelper(tests,
-                                         subproc_count=subproc_count * 2, 
-                                         verbose=True)
-    async_helper.run_to_completion(run_test_with_jit_order, test_results, git_hash_value, git_date_time)
+    if not coreclr_args.skip_jit_order_run:
+        start = time.perf_counter()
+        async_helper = AsyncSubprocessHelper(tests,
+                                             subproc_count=subproc_count * 2, 
+                                             verbose=True)
+        async_helper.run_to_completion(run_test_with_jit_order, test_results, git_hash_value, git_date_time)
 
-    # Using the information collected with jit order decide which set of tests we will
-    # collect performance information on
+        # Using the information collected with jit order decide which set of tests we will
+        # collect performance information on
 
-    elapsed_time = time.perf_counter() - start
+        elapsed_time = time.perf_counter() - start
 
-    passed_tests = []
-    failed_tests = []
+        passed_tests = []
+        failed_tests = []
 
-    for item in test_results:
-        item = test_results[item]
+        for item in test_results:
+            item = test_results[item]
 
-        if not item["passed"]:
-            failed_tests.append(item)
-        else:
-            passed_tests.append(item)
+            if not item["passed"]:
+                failed_tests.append(item)
+            else:
+                passed_tests.append(item)
 
-    print("")
-    print("-------------------------------------------------------------------")
-    print("Test run completed {:.2f}s".format(elapsed_time))
-    print("")
-    print("Total tests run: {}".format(len(passed_tests) + len(failed_tests)))
-    print("")
-    print("Passed: {}".format(len(passed_tests)))
-    print("Failed: {}".format(len(failed_tests)))
- 
-    start = time.perf_counter()
-    upload_results(passed_tests + failed_tests, coreclr_args, git_hash_value, git_date_time, verbose=False)
-    elapsed_time = time.perf_counter() - start
+        print("")
+        print("-------------------------------------------------------------------")
+        print("Test run completed {:.2f}s".format(elapsed_time))
+        print("")
+        print("Total tests run: {}".format(len(passed_tests) + len(failed_tests)))
+        print("")
+        print("Passed: {}".format(len(passed_tests)))
+        print("Failed: {}".format(len(failed_tests)))
 
-    print("Finished uploading ({}s)".format(elapsed_time))
+        if coreclr_args.collect_pmi_etw_information:
+            assert os.path.isfile(coreclr_args.pmi_location)
+
+            extension = ".sh" if coreclr_args.host_os != "Windows_NT" else ".cmd"
+
+            dlls = []
+
+            for test in tests:
+                test_path = test[-1]
+
+                dll_path = test_path.replace(extension, ".dll")
+
+                if os.path.isfile(dll_path):
+                    dlls.append(dll_path)
+
+            print("From {} tests, found {} dlls".format(len(tests), len(dlls)))
+
+            command = [
+                os.path.join(coreclr_args.core_root, "corerun" if coreclr_args.host_os != "Windows_NT" else "corerun.exe"),
+                coreclr_args.pmi_location,
+                "DRIVEALL-TAILCALLS-INLINES"
+            ]
+
+            dlls = [command + [item] for item in dlls]
+            pmi_results = defaultdict(lambda: None)
+
+            start = time.perf_counter()
+            async_helper = AsyncSubprocessHelper(dlls[:10],
+                                                subproc_count=subproc_count * 2, 
+                                                verbose=True)
+            async_helper.run_to_completion(run_test_with_pmi, pmi_results, git_hash_value, git_date_time)
+
+            elapsed_time = time.perf_counter() - start
+            print("Finished pmi. ({}s)".format(elapsed_time))
+
+            for item in pmi_results:
+                item["test_name"] = item["test_name"].replace(".dll", extension)
+
+                test_results[item["test_name"]]["events"] = item["events"]
+
+            passed_tests = []
+            failed_tests = []
+
+            for item in test_results:
+                item = test_results[item]
+
+                if not item["passed"]:
+                    failed_tests.append(item)
+                else:
+                    passed_tests.append(item)
+    
+        start = time.perf_counter()
+        upload_results(passed_tests + failed_tests, coreclr_args, git_hash_value, git_date_time, verbose=False)
+        elapsed_time = time.perf_counter() - start
+
+        print("Finished uploading ({}s)".format(elapsed_time))
 
     async_helper.run_to_completion(run_test_with_jit_order, test_results, git_hash_value)
 
@@ -666,6 +793,11 @@ def main(args):
                                     require_built_product_dir=False, 
                                     require_built_test_dir=False, 
                                     default_build_type="Checked")
+
+    coreclr_args.verify(args, "pmi_location", lambda unused: True, "Unused")
+
+    coreclr_args.verify(args, "skip_jit_order_run", lambda unused: True, "Unused")
+    coreclr_args.verify(args, "collect_pmi_etw_information", lambda unused: True, "Unused")
 
     tests = get_tests(coreclr_args.test_location)
     exclusions = filter_exclusions(os.path.join(coreclr_args.coreclr_repo_location, "tests", "issues.targets"), coreclr_args)
