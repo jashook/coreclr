@@ -26,7 +26,6 @@ import multiprocessing
 import os
 import platform
 import psutil
-import pymongo
 import pyodbc
 import shutil
 import subprocess
@@ -63,10 +62,11 @@ parser.add_argument("-arch", dest="arch", nargs='?', default="x64", help="Arch, 
 parser.add_argument("-build_type", dest="build_type", nargs='?', default="Checked", help="Build type, Checked is default")
 
 parser.add_argument("-pmi_location", dest="pmi_location", default=None, help="Change if running correctness testing.")
-parser.add_argument("--subproc_count", dest="subproc_count", default=(multiprocessing.cpu_count() / 2) + 1, help="Change if running correctness testing.")
+parser.add_argument("-subproc_count", dest="subproc_count", default=(multiprocessing.cpu_count() / 2) + 1, help="Change if running correctness testing.")
 
+parser.add_argument("--force_upload", dest="force_upload", default=False, action="store_true", help="Force the upload, useful only if loading older test results")
+parser.add_argument("--skip_jit_order_run", dest="skip_jit_order_run", default=False, action="store_true", help="Skip if using cached or already uploaded data.")
 
-parser.add_argument("--skip_jit_order_run", dest="skip_jit_order_run", default=False, action="store_true", help="Change if running correctness testing.")
 parser.add_argument("--collect_pmi_etw_information", dest="collect_pmi_etw_information", default=False, action="store_true", help="Change if running correctness testing.")
 
 ################################################################################
@@ -89,7 +89,7 @@ class ChangeDir:
 # Helper methods
 ################################################################################
 
-def filter_exclusions(issues_targets_file, coreclr_args):
+def filter_exclusions(tests, issues_targets_file, coreclr_args):
     """ Filter the exclusions based on the issues.targets file
     """
 
@@ -159,7 +159,23 @@ def filter_exclusions(issues_targets_file, coreclr_args):
 
         add_expand_path("JIT/superpmi/superpmicollect/*")
 
-    return excludes
+    filtered_tests = []
+
+    for item in tests:
+        if not item in excludes:
+            filtered_tests.append(item)
+
+    tests = filtered_tests
+    # filtered_tests = []
+
+    # # Remove all tracing* and GC* tests
+    # for item in tests:
+    #     if not "GC" in item and not "tracing" in item:
+    #         filtered_tests.append(item)
+
+    # tests = filtered_tests
+
+    return tests
 
 def get_tests(test_location, test_list=None):
     """ Get all of the tests under the test location passed.
@@ -286,6 +302,9 @@ async def run_test_with_jit_order(print_prefix, command, test_results, git_hash_
                     if " " in method["method_id"] or not method["method_id"].isalnum():
                         raise Exception("Error, invalid method id.")
 
+                    if "#" in method_name:
+                        raise Exception("Error invalid method name")
+
                     method["annotation"] = line_split[1].strip()
                     method["region"] = line_split[2].strip()
                     method["profile_call_count"] = line_split[3].strip()
@@ -352,13 +371,15 @@ async def run_test_with_pmi(print_prefix, command, test_results, git_hash_value,
 
     # parse the output.
     if "@!@!" in test_result["output"]:
-        lines = test_result["output"].split(os.sep)
+        lines = test_result["output"].split(os.linesep)
         for line in lines:
             event = defaultdict(lambda: None)
 
             if "JITTracing" in line:
                 line = line.split("JITTracing: ")[1]
                 values = line.split("@!@!@")
+
+                event["area"] = "codegen"
                 
                 event["type"] = values[0]
                 inline_event = "MethodJitInlining" in event["type"]
@@ -382,12 +403,16 @@ async def run_test_with_pmi(print_prefix, command, test_results, git_hash_value,
                     assert values[17] == "InlineeNameSignature"
                     event["method_candidate_signature"] = values[18]
 
+                    event["success"] = 1
+
                     if event["type"] != "MethodJitInliningSucceeded":
                         assert values[19] == "FailAlways"
                         event["always_fails"] = values[20]
 
                         assert values[21] == "FailReason"
                         event["fail_reason"] = values[22]
+
+                        event["success"] = 0
 
                 else:
                     assert values[13] == "CalleeNamespace"
@@ -402,13 +427,19 @@ async def run_test_with_pmi(print_prefix, command, test_results, git_hash_value,
                     assert values[19] == "TailPrefix"
                     event["tail_prefix"] = values[20]
 
+                    
+                    event["success"] = 1
+
                     if event["type"] != "MethodJitTailCallSucceeded":
 
                         assert values[21] == "FailReason"
                         event["fail_reason"] = values[22]
+
+                        event["success"] = 0
                 
                 events.append(event)
 
+    test_result["output"] = None
     test_result["events"] = events
     test_results[command[-1]] = test_result
 
@@ -574,7 +605,7 @@ def run_tests(tests, coreclr_args, subproc_count):
             pmi_results = defaultdict(lambda: None)
 
             start = time.perf_counter()
-            async_helper = AsyncSubprocessHelper(dlls[:10],
+            async_helper = AsyncSubprocessHelper(dlls,
                                                 subproc_count=subproc_count * 2, 
                                                 verbose=True)
             async_helper.run_to_completion(run_test_with_pmi, pmi_results, git_hash_value, git_date_time)
@@ -598,11 +629,84 @@ def run_tests(tests, coreclr_args, subproc_count):
                 else:
                     passed_tests.append(item)
     
+        store_test_results(coreclr_args, passed_tests, failed_tests)
+ 
         start = time.perf_counter()
         upload_results(passed_tests + failed_tests, coreclr_args, git_hash_value, git_date_time, verbose=False)
         elapsed_time = time.perf_counter() - start
 
         print("Finished uploading ({}s)".format(elapsed_time))
+    
+    else:
+        # We will need the information from the test run. Either it is cached
+        # on disk or we will need to download the information from the sql
+        # server.
+
+        test_results = retreive_tests(coreclr_args)
+
+        test_result_dict = defaultdict(lambda: None)
+        for item in test_results:
+            test_result_dict[item["test_name"]] = item
+
+        test_results = test_result_dict
+
+        if coreclr_args.collect_pmi_etw_information:
+            assert os.path.isfile(coreclr_args.pmi_location)
+
+            extension = ".sh" if coreclr_args.host_os != "Windows_NT" else ".cmd"
+
+            dlls = []
+
+            for test in tests:
+                test_path = test[-1]
+
+                dll_path = test_path.replace(extension, ".dll")
+
+                if os.path.isfile(dll_path):
+                    dlls.append(dll_path)
+
+            print("From {} tests, found {} dlls".format(len(tests), len(dlls)))
+
+            command = [
+                os.path.join(coreclr_args.core_root, "corerun" if coreclr_args.host_os != "Windows_NT" else "corerun.exe"),
+                coreclr_args.pmi_location,
+                "DRIVEALL-TAILCALLS-INLINES"
+            ]
+
+            dlls = [command + [item] for item in dlls]
+            pmi_results = defaultdict(lambda: None)
+
+            start = time.perf_counter()
+            async_helper = AsyncSubprocessHelper(dlls,
+                                                subproc_count=subproc_count * 2, 
+                                                verbose=True)
+            async_helper.run_to_completion(run_test_with_pmi, pmi_results, git_hash_value, git_date_time)
+
+            elapsed_time = time.perf_counter() - start
+            print("Finished pmi. ({}s)".format(elapsed_time))
+
+            for item in pmi_results:
+                item = pmi_results[item]
+                item["test_name"] = item["test_name"].replace(".dll", extension)
+
+                test_results[item["test_name"]]["events"] = item["events"]
+
+            passed_tests = []
+            failed_tests = []
+
+            for item in test_results:
+                item = test_results[item]
+
+                if not item["passed"]:
+                    failed_tests.append(item)
+                else:
+                    passed_tests.append(item)
+
+        if coreclr_args.force_upload:
+            start = time.perf_counter()
+            upload_results(passed_tests + failed_tests, coreclr_args, git_hash_value, git_date_time, verbose=False)
+            elapsed_time = time.perf_counter() - start
+
 
     async_helper.run_to_completion(run_test_with_jit_order, test_results, git_hash_value)
 
@@ -695,80 +799,219 @@ def upload_results(test_results, coreclr_args, git_commit, git_commit_date, verb
 
     total = len(test_results)
     methods_command = "INSERT methods (method_id, annotation, region, profile_call_count, has_eh, frame_type, has_loops, call_count, indirect_call_count, basic_block_count, local_var_count, min_opts, tier, assertion_prop_count, cse_count, register_allocator, il_bytes, hot_code_size, cold_code_size, method_name, test) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    events_command = "INSERT events (callee_name, callee_namespace, callee_signature, method_name, method_namespace, method_signature, event_type, event_area, event_success, event_value, test) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
 
     # Upload the environment data
     env_data_insert_statement = "INSERT env_data (key_name, env_value, test) VALUES (?, ?, ?)"
 
     with SqlHelper(cursor, env_data_insert_statement, verbose=verbose) as env_sql_command:
         with SqlHelper(cursor, methods_command, verbose=verbose) as method_sql_command:
-            for test_index, item in enumerate(test_results):
-                start = time.perf_counter()
+            with SqlHelper(cursor, events_command, verbose=verbose) as event_sql_command:
+                for test_index, item in enumerate(test_results):
+                    start = time.perf_counter()
 
-                if type(item) == str:
-                    item = test_results[item]
+                    if type(item) == str:
+                        item = test_results[item]
 
-                # Insert the high level test data first to get its key
-                passed = 1 if item["passed"] is True else 0
-                output = item["output"].replace("'", '"')
-                command = "EXEC add_test @TestName = '{}', @Passed = {}, @TestOutput = '{}', @RunTime = {}, @GitHash = '{}', @Date = '{}', @TestRunId = '{}'".format(item["test_name"], passed, output, item["run_time"], item["hash"], item["date"], test_run_id)
-                result = execute_command(command)
+                    # Insert the high level test data first to get its key
+                    passed = 1 if item["passed"] is True else 0
+                    output = item["output"].replace("'", '"')
+                    command = "EXEC add_test @TestName = '{}', @Passed = {}, @TestOutput = '{}', @RunTime = {}, @GitHash = '{}', @Date = '{}', @TestRunId = '{}'".format(item["test_name"], passed, output, item["run_time"], item["hash"], item["date"], test_run_id)
+                    result = execute_command(command)
 
-                foreign_key = result[0]
+                    foreign_key = result[0]
 
-                for env_var in item["env"]:
-                    env_sql_command.add_data((env_var, item["env"][env_var], foreign_key))
+                    for env_var in item["env"]:
+                        env_sql_command.add_data((env_var, item["env"][env_var], foreign_key))
 
-                if len(item["methods"]) > 0:
-                    # Upload all of the methods for a specific test results
-                    for method in item["methods"]:
-                        value = []
-                        has_eh = 1 if method["has_eh"] is True else 0
-                        has_loops = 1 if method["has_loops"] is True else 0
-                        min_opts = 1 if method["min_opts"] is True else 0
+                    if len(item["methods"]) > 0:
+                        # Upload all of the methods for a specific test results
+                        for method in item["methods"]:
+                            try:
+                                value = []
+                                has_eh = 1 if method["has_eh"] is True else 0
+                                has_loops = 1 if method["has_loops"] is True else 0
+                                min_opts = 1 if method["min_opts"] is True else 0
 
-                        
-                        if " " in method["method_id"]:
-                            raise Exception("Invalid method id.")
+                                
+                                if " " in method["method_id"]:
+                                    raise Exception("Invalid method id.")
 
-                        value.append(method["method_id"])
+                                value.append(method["method_id"])
 
-                        value.append(method["annotation"])
-                        value.append(method["region"])
-                        value.append(method["profile_call_count"])
-                        value.append(has_eh)
-                        value.append(method["frame_type"])
-                        value.append(has_loops)
-                        value.append(method["call_count"])
-                        value.append(method["indirect_call_count"])
-                        value.append(method["basic_block_count"])
-                        value.append(method["local_var_count"])
-                        value.append(min_opts)
-                        value.append(method["tier"])
+                                value.append(method["annotation"])
+                                value.append(method["region"])
+                                
+                                if not method["profile_call_count"].isnumeric():
+                                    raise Exception("Invalid value.")
 
-                        if "assertion_prop_count" in method.keys():
-                            value.append(method["assertion_prop_count"])
-                            value.append(method["cse_count"])
-                        else:
-                            value.append(-1)
-                            value.append(-1)
-                        
-                        value.append(method["register_allocator"])
-                        value.append(method["il_bytes"])
-                        value.append(method["hot_code_size"])
-                        value.append(method["cold_code_size"])
-                        value.append(method["method_name"])
-                        value.append(foreign_key)
+                                value.append(method["profile_call_count"])
 
-                        method_sql_command.add_data(value)
-                        
-                    elapsed_time = time.perf_counter() - start
+                                if not isinstance(has_eh, int):
+                                    raise Exception("Invalid value.")
 
-                    print("[{}:{}] - Uploaded ({:.2f}s)".format(test_index, total, elapsed_time))
+                                value.append(has_eh)
+
+                                if not method["frame_type"].isalnum():
+                                    raise Exception("Invalid value.")
+
+                                value.append(method["frame_type"])
+
+                                if not isinstance(has_loops, int):
+                                    raise Exception("Invalid value.")
+
+                                value.append(has_loops)
+
+                                if not isinstance(method["call_count"], int):
+                                    raise Exception("Invalid value.")
+
+                                value.append(method["call_count"])
+
+                                if not isinstance(method["indirect_call_count"], int):
+                                    raise Exception("Invalid value.")
+
+                                value.append(method["indirect_call_count"])
+
+                                if not isinstance(method["basic_block_count"], int):
+                                    raise Exception("Invalid value.")
+
+                                value.append(method["basic_block_count"])
+
+                                if not isinstance(method["local_var_count"], int):
+                                    raise Exception("Invalid value.")
+
+                                value.append(method["local_var_count"])
+
+                                if not isinstance(min_opts, int):
+                                    raise Exception("Invalid value.")
+                                
+                                value.append(min_opts)
+
+                                if not isinstance(method["tier"], int):
+                                    raise Exception("Invalid value.")
+
+                                value.append(method["tier"])
+
+                                if "assertion_prop_count" in method.keys():
+                                    value.append(method["assertion_prop_count"])
+                                    value.append(method["cse_count"])
+                                else:
+                                    value.append(-1)
+                                    value.append(-1)
+
+                                if not isinstance(value[-2], int) or not isinstance(value[-2], int):
+                                    raise Exception("Invalid value.")
+                                
+                                if not method["register_allocator"].isalnum():
+                                    raise Exception("Invalid value.")
+
+                                value.append(method["register_allocator"])
+
+                                if not isinstance(method["il_bytes"], int):
+                                    raise Exception("Invalid value.")
+
+                                value.append(method["il_bytes"])
+
+                                if not isinstance(method["hot_code_size"], int):
+                                    raise Exception("Invalid value.")
+
+                                if not isinstance(method["cold_code_size"], int):
+                                    raise Exception("Invalid value.")
+
+                                value.append(method["hot_code_size"])
+                                value.append(method["cold_code_size"])
+
+                                if "#" in method["method_name"] or "/" in method["method_name"] or "\\" in method["method_name"]:
+                                    raise Expception("Invalid method name.")
+
+                                value.append(method["method_name"])
+                                value.append(foreign_key)
+
+                                assert len(value) == 21
+
+                                method_sql_command.add_data(value)
+                            except:
+                                pass
+
+                        if "events" in item.keys() and len(item["events"]) > 0:
+                            for event in item["events"]:
+                                value = []
+
+                                value.append(event["method_candidate_name"])
+                                value.append(event["method_candidate_namespace"])
+                                value.append(event["method_candidate_signature"])
+                                value.append(event["method_name"])
+                                value.append(event["namespace"])
+                                value.append(event["signature"])
+                                value.append(event["type"])
+                                value.append(event["area"])
+                                value.append(event["success"])
+                                value.append(event["fail_reason"] if event["fail_reason"] is not None else "NULL")
+
+                                for v in value:
+                                    if v is None:
+                                        raise Except("None value encountered.")
+                                
+                                value.append(foreign_key)
+
+                                event_sql_command.add_data(value)
+                                event_sql_command.__empty_queue__()
+                            
+                        elapsed_time = time.perf_counter() - start
+
+                        print("[{}:{}] - Uploaded ({:.2f}s)".format(test_index, total, elapsed_time))
 
     print("Methods: Uploaded ({:.2f}s)".format(elapsed_time))
 
     cursor.close()
     connection.close()
+
+def store_test_results(coreclr_args, passed_tests, failed_tests):
+    """ Store the test results on disk
+    """
+
+    # TODO output as xunit xml
+
+    tests = passed_tests + failed_tests
+    serializable_tests = []
+
+    for test in tests:
+        # Do a deep copy to avoid overwriting fields
+        serializable_test = test.copy()
+        serializable_test["date"] = serializable_test["date"].__str__()
+
+        serializable_tests.append(serializable_test)
+
+    test_result_location = os.path.join(coreclr_args.test_location, "TestResults_{}_{}_{}.json".format(coreclr_args.host_os, coreclr_args.arch, coreclr_args.build_type))
+    
+    bytes_written = 2
+
+    with open(test_result_location, 'w') as file_handle:
+        file_handle.write("[")
+        for index, item in enumerate(serializable_tests):
+            json_value = json.dumps(item)
+
+            file_handle.write(json_value)
+
+            if index + 1 != len(serializable_tests):
+                file_handle.write(",")
+
+            bytes_written += len(json_value) + 1
+        file_handle.write("]")
+
+    print("Test results written ({:.2f} mb): {}".format(bytes_written / (1024 * 1024), test_result_location))
+
+def retreive_tests(coreclr_args):
+    
+    test_result_location = os.path.join(coreclr_args.test_location, "TestResults_{}_{}_{}.json".format(coreclr_args.host_os, coreclr_args.arch, coreclr_args.build_type))
+    
+    data = None
+
+    with open(test_result_location) as file_handle:
+        data = file_handle.read()
+
+    test_results = json.loads(data)
+    return test_results
 
 ################################################################################
 # main
@@ -797,26 +1040,11 @@ def main(args):
     coreclr_args.verify(args, "pmi_location", lambda unused: True, "Unused")
 
     coreclr_args.verify(args, "skip_jit_order_run", lambda unused: True, "Unused")
+    coreclr_args.verify(args, "force_upload", lambda unused: True, "Unused")
     coreclr_args.verify(args, "collect_pmi_etw_information", lambda unused: True, "Unused")
 
     tests = get_tests(coreclr_args.test_location)
-    exclusions = filter_exclusions(os.path.join(coreclr_args.coreclr_repo_location, "tests", "issues.targets"), coreclr_args)
-    
-    filtered_tests = []
-
-    for item in tests:
-        if not item in exclusions:
-            filtered_tests.append(item)
-
-    tests = filtered_tests
-    filtered_tests = []
-
-    # Remove all tracing* and GC* tests
-    for item in tests:
-        if not "GC" in item and not "tracing" in item:
-            filtered_tests.append(item)
-
-    tests = filtered_tests
+    tests = filter_exclusions(tests, os.path.join(coreclr_args.coreclr_repo_location, "tests", "issues.targets"), coreclr_args)
 
     commands = []
 
@@ -836,7 +1064,7 @@ def main(args):
     print("export CORE_ROOT={}".format(coreclr_args.core_root))
     os.environ["CORE_ROOT"] = os.path.join(coreclr_args.core_root)
 
-    print("Will run over {} tests.".format(len(tests)))
+    print("Will run {} tests.".format(len(tests)))
     print("")
 
     # Run tests without configuration
