@@ -61,6 +61,8 @@ parser = argparse.ArgumentParser(description=description)
 parser.add_argument("-arch", dest="arch", nargs='?', default="x64", help="Arch, default is x64") 
 parser.add_argument("-build_type", dest="build_type", nargs='?', default="Checked", help="Build type, Checked is default")
 
+
+parser.add_argument("-command", dest="command", default=None, help="Run a specific command, instead of the coreclr tests.")
 parser.add_argument("-pmi_location", dest="pmi_location", default=None, help="Change if running correctness testing.")
 parser.add_argument("-subproc_count", dest="subproc_count", default=(multiprocessing.cpu_count() / 2) + 1, help="Change if running correctness testing.")
 
@@ -196,10 +198,13 @@ def get_tests(test_location, test_list=None):
     
     return test_list
 
-async def run_individual_test(print_prefix, command, env, git_hash_value, git_date_time):
+async def run_individual_test(print_prefix, command, env, git_hash_value, git_date_time, coreclr_args):
     """ Run an individual test
     """
     timeout = 60 * 10 # 60 seconds * amount of minutes
+
+    if coreclr_args.command is not None:
+        timeout = 60 * 960 # 8 hours
 
     start = time.perf_counter()
     proc = await asyncio.create_subprocess_shell(" ".join(command),
@@ -232,7 +237,7 @@ async def run_individual_test(print_prefix, command, env, git_hash_value, git_da
         except:
             decoded_stdout = ""
 
-        if return_code != 0:
+        if return_code != 0 and len(decoded_stdout) < (1024 * 10):
             print(decoded_stdout)
     else:
         print("{}({:.2f}s) - TIMEOUT - {}".format(print_prefix, elapsed_time, " ".join(command)))
@@ -248,7 +253,10 @@ async def run_individual_test(print_prefix, command, env, git_hash_value, git_da
     if sep_character == "\\":
         sep_character = "\\{}".format(os.sep)
 
-    test_name = re.split("\w+\.\w+\.\w+{}".format(sep_character), command[-1])[1]
+    try:
+        test_name = re.split("\w+\.\w+\.\w+{}".format(sep_character), command[-1])[1]
+    except:
+        test_name = "unknown"
 
     test_result["test_name"] = test_name
     test_result["passed"] = return_code == 0
@@ -260,7 +268,7 @@ async def run_individual_test(print_prefix, command, env, git_hash_value, git_da
 
     return test_result
 
-async def run_test_with_jit_order(print_prefix, command, test_results, git_hash_value, git_date_time):
+async def run_test_with_jit_order(print_prefix, command, test_results, git_hash_value, git_date_time, coreclr_args):
     """ run_test_with_jit_order
 
         Notes:
@@ -271,7 +279,7 @@ async def run_test_with_jit_order(print_prefix, command, test_results, git_hash_
     env = os.environ.copy()
     env["COMPlus_JitOrder"] = "1"
 
-    test_result = await run_individual_test(print_prefix, command, env, git_hash_value, git_date_time)
+    test_result = await run_individual_test(print_prefix, command, env, git_hash_value, git_date_time, coreclr_args)
 
     output = test_result["output"]
     jit_order_output_removed = []
@@ -354,15 +362,14 @@ async def run_test_with_jit_order(print_prefix, command, test_results, git_hash_
     jit_order_output_removed = os.linesep.join(jit_order_output_removed)
     test_result["output"] = jit_order_output_removed
 
-    if len(test_result) > 2048:
+    if len(test_result["output"]) > 2048:
         print("Shortening output to store later.")
-        test_result["output"] = test_result[:2048]
+        test_result["output"] = test_result["output"][:2048]
 
     test_result["methods"] = methods
-    test_results[command[-1]] = test_result
+    test_results[test_result["test_name"]] = test_result
 
-async def run_test_with_pmi(print_prefix, command, test_results, git_hash_value, git_date_time):
-
+async def run_test_with_pmi(print_prefix, command, coreclr_args, git_hash_value, git_date_time):
     env = os.environ.copy()
 
     test_result = await run_individual_test(print_prefix, command, env, git_hash_value, git_date_time)
@@ -439,9 +446,8 @@ async def run_test_with_pmi(print_prefix, command, test_results, git_hash_value,
                 
                 events.append(event)
 
-    test_result["output"] = None
     test_result["events"] = events
-    test_results[command[-1]] = test_result
+    return test_result
 
 async def run_test(print_prefix, command, test_results, git_hash_value, git_date_time):
     """ Run a test with a bunch of different configurations
@@ -551,7 +557,7 @@ def run_tests(tests, coreclr_args, subproc_count):
         async_helper = AsyncSubprocessHelper(tests,
                                              subproc_count=subproc_count * 2, 
                                              verbose=True)
-        async_helper.run_to_completion(run_test_with_jit_order, test_results, git_hash_value, git_date_time)
+        async_helper.run_to_completion(run_test_with_jit_order, test_results, git_hash_value, git_date_time, coreclr_args)
 
         # Using the information collected with jit order decide which set of tests we will
         # collect performance information on
@@ -578,6 +584,8 @@ def run_tests(tests, coreclr_args, subproc_count):
         print("Passed: {}".format(len(passed_tests)))
         print("Failed: {}".format(len(failed_tests)))
 
+        store_test_results(coreclr_args, passed_tests, failed_tests)
+
         if coreclr_args.collect_pmi_etw_information:
             assert os.path.isfile(coreclr_args.pmi_location)
 
@@ -606,14 +614,15 @@ def run_tests(tests, coreclr_args, subproc_count):
 
             start = time.perf_counter()
             async_helper = AsyncSubprocessHelper(dlls,
-                                                subproc_count=subproc_count * 2, 
-                                                verbose=True)
-            async_helper.run_to_completion(run_test_with_pmi, pmi_results, git_hash_value, git_date_time)
+                                                 subproc_count=subproc_count * 2, 
+                                                 verbose=True)
+            async_helper.run_to_completion(run_test_with_pmi, test_results, pmi_results, git_hash_value, git_date_time)
 
             elapsed_time = time.perf_counter() - start
             print("Finished pmi. ({}s)".format(elapsed_time))
 
             for item in pmi_results:
+                item = pmi_results[item]
                 item["test_name"] = item["test_name"].replace(".dll", extension)
 
                 test_results[item["test_name"]]["events"] = item["events"]
@@ -628,8 +637,6 @@ def run_tests(tests, coreclr_args, subproc_count):
                     failed_tests.append(item)
                 else:
                     passed_tests.append(item)
-    
-        store_test_results(coreclr_args, passed_tests, failed_tests)
  
         start = time.perf_counter()
         upload_results(passed_tests + failed_tests, coreclr_args, git_hash_value, git_date_time, verbose=False)
@@ -650,6 +657,17 @@ def run_tests(tests, coreclr_args, subproc_count):
 
         test_results = test_result_dict
 
+        passed_tests = []
+        failed_tests = []
+
+        for item in test_results:
+            item = test_results[item]
+
+            if not item["passed"]:
+                failed_tests.append(item)
+            else:
+                passed_tests.append(item)
+
         if coreclr_args.collect_pmi_etw_information:
             assert os.path.isfile(coreclr_args.pmi_location)
 
@@ -680,7 +698,7 @@ def run_tests(tests, coreclr_args, subproc_count):
             async_helper = AsyncSubprocessHelper(dlls,
                                                 subproc_count=subproc_count * 2, 
                                                 verbose=True)
-            async_helper.run_to_completion(run_test_with_pmi, pmi_results, git_hash_value, git_date_time)
+            async_helper.run_to_completion(run_test_with_pmi, coreclr_args, test_results, pmi_results, git_hash_value, git_date_time)
 
             elapsed_time = time.perf_counter() - start
             print("Finished pmi. ({}s)".format(elapsed_time))
@@ -744,10 +762,10 @@ def upload_results(test_results, coreclr_args, git_commit, git_commit_date, verb
     server = "coreclr-performance.database.windows.net"
     database = "coreclr-performance" 
     username = "robox"
-    password = os.environ["robox-pw"]
+    password = os.environ["robox_pw"]
 
     if password == "":
-        print("Unable to upload data, robox-pw is unset.")
+        print("Unable to upload data, robox_pw is unset.")
         return
 
     connection = None
@@ -947,21 +965,14 @@ def upload_results(test_results, coreclr_args, git_commit, git_commit_date, verb
                                 value.append(event["area"])
                                 value.append(event["success"])
                                 value.append(event["fail_reason"] if event["fail_reason"] is not None else "NULL")
-
-                                for v in value:
-                                    if v is None:
-                                        raise Except("None value encountered.")
                                 
                                 value.append(foreign_key)
 
                                 event_sql_command.add_data(value)
-                                event_sql_command.__empty_queue__()
                             
                         elapsed_time = time.perf_counter() - start
 
                         print("[{}:{}] - Uploaded ({:.2f}s)".format(test_index, total, elapsed_time))
-
-    print("Methods: Uploaded ({:.2f}s)".format(elapsed_time))
 
     cursor.close()
     connection.close()
@@ -1037,14 +1048,20 @@ def main(args):
                                     require_built_test_dir=False, 
                                     default_build_type="Checked")
 
+    coreclr_args.verify(args, "command", lambda unused: True, "Unused")
     coreclr_args.verify(args, "pmi_location", lambda unused: True, "Unused")
 
     coreclr_args.verify(args, "skip_jit_order_run", lambda unused: True, "Unused")
     coreclr_args.verify(args, "force_upload", lambda unused: True, "Unused")
     coreclr_args.verify(args, "collect_pmi_etw_information", lambda unused: True, "Unused")
 
-    tests = get_tests(coreclr_args.test_location)
-    tests = filter_exclusions(tests, os.path.join(coreclr_args.coreclr_repo_location, "tests", "issues.targets"), coreclr_args)
+    tests = []
+
+    if coreclr_args.command is None:
+        tests = get_tests(coreclr_args.test_location)
+        tests = filter_exclusions(tests, os.path.join(coreclr_args.coreclr_repo_location, "tests", "issues.targets"), coreclr_args)
+    else:
+        tests.append(coreclr_args.command)
 
     commands = []
 
@@ -1055,11 +1072,15 @@ def main(args):
         corerun = "corerun.exe"
         pre_command = ""
 
-    for item in tests:
-        if pre_command != "":
-            commands.append([pre_command, item])
-        else:
-            commands.append([item])
+    if coreclr_args.command is None:
+        for item in tests:
+            if pre_command != "":
+                commands.append([pre_command, item])
+            else:
+                commands.append([item])
+    else:
+        for test in tests:
+            commands.append(tests[0].split(" "))
 
     print("export CORE_ROOT={}".format(coreclr_args.core_root))
     os.environ["CORE_ROOT"] = os.path.join(coreclr_args.core_root)
